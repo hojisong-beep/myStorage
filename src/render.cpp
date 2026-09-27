@@ -482,8 +482,10 @@ void Renderer::drawBodies(Game& g, const UPos& cam) {
         if (b.rings) extent = Rs * b.ringOuter;
         if (b.accretion) extent = Rs * b.ringOuter;
         extent *= 1.05f;
-        double nearP = std::max(1000.0 - extent, 0.02);
-        double farP = 1000.0 + extent;
+        // clip range from the view-space depth of the centre (not its distance)
+        double zc = c.x * view.fwd.x + c.y * view.fwd.y + c.z * view.fwd.z;
+        double nearP = std::max(zc - extent, 0.02);
+        double farP = std::max(zc + extent, nearP + 1.0);
         float px = (float)(b.radius / bd.d * ppr);
         BeginLayer(view, nearP, farP);
         GfxClearDepth();
@@ -565,7 +567,7 @@ void Renderer::drawBodies(Game& g, const UPos& cam) {
             spritesFar.clear();
             float pxUnit = 1000.0f / ppr;
             spritesFar.add(c, Rs * 1.35f + 2 * pxUnit, {3.0f, 2.2f, 1.5f, 1}, SH_RING);
-            spritesFar.add(c, Rs * 30.f + 40 * pxUnit, {0.5f, 0.35f, 0.25f, 1}, SH_GLOW);
+            spritesFar.add(c, Rs * 30.f + 40 * pxUnit, {0.15f, 0.1f, 0.07f, 1}, SH_GLOW);
             SetBlend(BL_ADD);
             spritesFar.draw(sprite.mat);
             SetBlend(BL_ALPHA);

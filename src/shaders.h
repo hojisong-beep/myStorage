@@ -257,7 +257,7 @@ void main(){
     float heat = pow(1.0-t, 2.2);
     vec3 hot = mix(vec3(1.0,0.35,0.08), vec3(1.0,0.9,0.75), heat);
     float a = smoothstep(0.0,0.08,t)*smoothstep(1.0,0.4,t);
-    vec3 c = hot*(0.4+1.2*swirl)*(0.5+6.0*heat)*a;
+    vec3 c = hot*(0.4+1.2*swirl)*(0.25+2.2*heat)*a;
     finalColor = vec4(c, 1.0);
     return;
   }

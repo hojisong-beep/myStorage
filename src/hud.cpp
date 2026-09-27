@@ -72,7 +72,7 @@ static std::string simDate(double simTime) {
 // ---------------------------------------------------------------------------
 static void drawLabels(Game& g, const ViewInfo& v, const UPos& cam) {
     Universe& U = g.U;
-    const std::string& navName = g.travel.active ? g.travel.target.name : U.nav[g.navSel].name;
+    const std::string& navName = (g.travel.active || g.autoMode) ? g.travel.target.name : U.nav[g.navSel].name;
     auto label = [&](const DVec3& rel, const std::string& name, Color c, bool dist = true) {
         if (name == navName) return;
         Vector2 p;
@@ -175,7 +175,7 @@ void DrawHUD(Game& g, const Renderer& r) {
 
     // navigation target
     if (!U.nav.empty()) {
-        const NavTarget& nt = g.travel.active ? g.travel.target : U.nav[g.navSel];
+        const NavTarget& nt = (g.travel.active || g.autoMode) ? g.travel.target : U.nav[g.navSel];
         DVec3 rel = relM(U.navPos(nt), cam);
         Vector2 p;
         Color c = g.travel.active ? C_GREEN : C_GOLD;
@@ -261,7 +261,7 @@ void DrawHUD(Game& g, const Renderer& r) {
 
     // --- top right: destination panel ---
     if (!U.nav.empty()) {
-        const NavTarget& nt = g.travel.active ? g.travel.target : U.nav[g.navSel];
+        const NavTarget& nt = (g.travel.active || g.autoMode) ? g.travel.target : U.nav[g.navSel];
         double dist = relM(U.navPos(nt), cam).len();
         float x = W - 20.f;
         text("DESTINATION  (N/B select, G go)", x, 16, 11, C_HUDDIM, 2);

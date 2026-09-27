@@ -63,6 +63,7 @@ void Game::init() {
     camQ = ship.q;
 
     navSel = U.findNav("Mars");
+    navSelName = "Mars";
     for (int i = 0; i < 600; i++)
         dust.push_back({(float)grng.range(-150, 150), (float)grng.range(-150, 150), (float)grng.range(-150, 150)});
     msg("Welcome aboard. Press P for AUTO mode, H for help.", {255, 230, 140, 255});
@@ -119,9 +120,13 @@ void Game::handleInput(float dt) {
         msg(cn[camMode]);
     }
     int navN = (int)U.nav.size();
+    if (navSel >= navN || U.nav[navSel].name != navSelName) {
+        int i = U.findNav(navSelName);
+        navSel = i >= 0 ? i : std::min(navSel, navN - 1);
+    }
     if (IsKeyPressed(KEY_N)) navSel = (navSel + 1) % navN;
     if (IsKeyPressed(KEY_B)) navSel = (navSel + navN - 1) % navN;
-    navSel = std::min(navSel, navN - 1);
+    navSelName = U.nav[navSel].name;
 
     // free look with the right mouse button (all modes)
     if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
@@ -847,6 +852,10 @@ void Game::updateCamera(float dt) {
         Vector3 local;
         if (ship.drive == DRIVE_WARP || ship.spool > 0)
             local = {sinf(a * 2.1f) * 16.f, 7.f + 3.f * sinf(a * 1.3f), 34.f};  // behind: see the stars rushing at us
+        else if (autoMode && tour == TOUR_SIGHTSEE) {
+            float b = 0.75f * sinf(a * 1.7f);   // swing across the rear arc: destination stays in view
+            local = {sinf(b) * R, 9.f + 6.f * sinf(a * 0.9f), cosf(b) * R};
+        }
         else
             local = {sinf(a) * R, 8.f + 12.f * sinf(a * 0.61f), cosf(a) * R};
         camQ = QuaternionSlerp(camQ, ship.q, clampf(dt * 2.0f, 0, 1));

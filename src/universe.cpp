@@ -145,6 +145,10 @@ void GenerateStarSystem(StarSystem& s, uint64_t seed, const std::string& starNam
     star.seed = (float)r.uni();
     star.spinPeriod = r.range(10, 40) * DAY_S;
     if (blackHole) {
+        // Sgr A*: accretion disk tilted a little from the galactic plane
+        s.en = DVec3(0.25, 1, 0.1).norm();
+        s.ex = cross(s.en, DVec3(0, 0, 1)).norm();
+        s.ey = cross(s.en, s.ex).norm();
         star.type = BT_BLACKHOLE;
         star.radius = 1.2e10;      // Schwarzschild radius of Sgr A*
         star.accretion = true;
@@ -846,8 +850,17 @@ UPos Universe::navArrival(const NavTarget& t, const UPos& from) const {
         if (b && b->rings) stand = R * 5.5;
         if (b && b->type == BT_STAR) stand = R * 10;
     }
+    // approach from above the orbital plane: rings and disks are seen open, not edge-on
+    {
+        const StarSystem* sys = t.kind == NAV_SOL ? &sol : (t.kind == NAV_LOCAL ? local.get() : nullptr);
+        if (t.kind == NAV_STAR && named[t.index].blackHole && local && localNamed == t.index) sys = local.get();
+        DVec3 n = sys ? sys->en : DVec3(0, 1, 0);
+        if (t.kind == NAV_STAR && named[t.index].blackHole) n = DVec3(0.25, 1, 0.1).norm();
+        if (dot(n, dir) < 0) n = -n;
+        double lift = (t.kind == NAV_STAR && named[t.index].blackHole) || (t.kind == NAV_LOCAL && local && local->bodies[t.index].accretion) ? 0.9 : 0.35;
+        dir = (dir + n * lift).norm();
+    }
     UPos out = target;
-    // approach slightly from above the orbital plane for a nicer view
     out.addMetres(dir * stand);
     return out;
 }

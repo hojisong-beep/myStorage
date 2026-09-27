@@ -43,13 +43,14 @@ int main(int argc, char** argv) {
     if (gotoName) {
         int i = game->U.findNav(gotoName);
         if (i >= 0) {
-            const NavTarget& t = game->U.nav[i];
+            const NavTarget t = game->U.nav[i];
             game->ship.pos = game->U.navArrival(t, game->ship.pos);
             DVec3 to = relM(game->U.navPos(t), game->ship.pos);
             game->ship.q = QuaternionFromVector3ToVector3({0, 0, -1}, to.norm().f());
             game->camQ = game->ship.q;
             game->U.update(0, game->ship.pos);
             game->navSel = i;
+            game->navSelName = t.name;
         }
     }
     if (camMode >= 0) game->camMode = (CamMode)camMode;

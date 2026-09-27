@@ -108,6 +108,7 @@ struct Game {
 
     // navigation
     int navSel = 0;
+    std::string navSelName;         // keeps the selection when the list changes
     Travel travel;
     bool autoMode = false;
     TourState tour = TOUR_PLAN;
