@@ -1,0 +1,35 @@
+name: Build Cosmic Voyager
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: CosmicVoyager-Windows
+            exe: build/Release/CosmicVoyager.exe
+          - os: macos-latest
+            name: CosmicVoyager-macOS
+            exe: build/CosmicVoyager
+          - os: ubuntu-latest
+            name: CosmicVoyager-Linux
+            exe: build/CosmicVoyager
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev libasound2-dev
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.exe }}
