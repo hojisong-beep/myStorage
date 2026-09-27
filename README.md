@@ -32,9 +32,11 @@ GitHub 저장소 → **Actions** 탭 → 최신 "Build Cosmic Voyager" 실행 �
   - 처음 실행할 때 우클릭 → 열기.
   - 필요하면 `chmod +x CosmicVoyager`를 먼저 실행.
 
-## 직접 빌드
+## 로컬에서 빌드하고 실행하기
 
-필요 도구는 2개입니다. raylib은 CMake가 자동으로 내려받습니다.
+### 1. 필요한 도구 설치
+
+필요 도구는 2개(C++ 컴파일러, CMake)입니다. 그래픽 라이브러리 raylib은 CMake가 자동으로 내려받습니다.
 
 | OS | 설치할 것 |
 |---|---|
@@ -42,13 +44,43 @@ GitHub 저장소 → **Actions** 탭 → 최신 "Build Cosmic Voyager" 실행 �
 | macOS | Xcode Command Line Tools (`xcode-select --install`), CMake (`brew install cmake`) |
 | Linux | `build-essential cmake libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libgl1-mesa-dev libasound2-dev` |
 
+설치를 확인하려면 다음을 실행합니다.
+
+```bash
+cmake --version
+```
+
+### 2. 빌드
+
+저장소 루트 폴더(`CMakeLists.txt`가 있는 곳)에서 실행합니다.
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
-# 실행
+```
+
+- 첫 빌드에서는 raylib을 내려받으므로 인터넷 연결이 필요하고 몇 분 걸릴 수 있습니다.
+- 이후에는 코드를 수정하고 두 번째 명령(`cmake --build ...`)만 다시 실행하면 됩니다.
+
+### 3. 실행
+
+```bash
 ./build/CosmicVoyager            # macOS / Linux
 build\Release\CosmicVoyager.exe  # Windows
 ```
+
+실행 옵션을 붙여 시작할 수도 있습니다(아래 "실행 옵션" 참고).
+
+```bash
+./build/CosmicVoyager --auto              # AUTO 모드로 시작
+./build/CosmicVoyager --goto "Saturn"     # 토성 근처에서 시작
+```
+
+### 문제 해결
+
+- **`cmake: command not found`**: CMake가 설치되지 않았습니다. macOS는 `brew install cmake`로 설치합니다.
+- **raylib 다운로드 실패**: 인터넷 연결을 확인하고 `build` 폴더를 지운 뒤 다시 빌드합니다.
+- **적이 나타나지 않음**: 적은 워프 중이 아닐 때만 나타납니다. AUTO 모드를 끄고 X로 정지한 뒤, 워프 없이 약 40초 기다리면 첫 번째 적 무리가 나타납니다.
 
 ## 조작법
 
