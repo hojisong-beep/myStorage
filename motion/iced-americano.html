@@ -1,0 +1,809 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>아이스 아메리카노 손그림</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#1b1511;--fg:#f1e8d8;--accent:#c58e57}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+  #app{display:flex;flex-direction:column;height:100%}
+  #stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:8px 8px 0}
+  canvas{display:block;background:#000;box-shadow:0 6px 30px rgba(0,0,0,.5)}
+  #bar{display:flex;align-items:center;gap:14px;padding:10px 16px 14px;max-width:760px;width:100%;margin:0 auto}
+  #play{width:44px;height:44px;border-radius:50%;border:2px solid var(--accent);background:transparent;color:var(--fg);font-size:18px;cursor:pointer;flex:none}
+  #play:hover{background:rgba(197,142,87,.2)}
+  #seek{flex:1;accent-color:var(--accent);height:24px;cursor:pointer}
+  #tm{font-variant-numeric:tabular-nums;font-size:13px;opacity:.75;min-width:78px;text-align:right}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage"><canvas id="cv" width="1080" height="1920"></canvas></div>
+  <div id="bar">
+    <button id="play" aria-label="재생/일시정지">❚❚</button>
+    <input id="seek" type="range" min="0" max="22" step="0.01" value="0" aria-label="재생 위치">
+    <span id="tm">0.0 / 22.0</span>
+  </div>
+</div>
+<script>
+/* =====================================================================
+   1. 설정 — 문구 · 색 · 장면 시간표 · 카메라 위치 (여기만 고치면 됩니다)
+   ===================================================================== */
+const W = 1080, H = 1920, DUR = 22;                 // 화면 크기, 길이(초)
+const PAPER = { w: 1200, h: 4600, cell: 40, big: 200 };
+const FONT = 'Gaegu';
+
+const COLOR = {
+  paper: '#ECE6DA', grid: 'rgba(52,140,140,0.10)', gridBig: 'rgba(52,140,140,0.24)',
+  desk: '#CDBFA5', doodle: '#6E5B46',
+  ink: '#2E2622', highlight: 'rgba(255,240,40,0.78)',
+  bean: '#6B4127', groove: '#3A2215', grain: '#5A3620', crema: '#C58E57',
+  ice: '#CEE8F4', iceEdge: '#4F7F9A', water: '#E3F2F9', coffee: '#3B2316',
+  check: '#B2432F', repaint: '#6B4127',
+  wash: '#F6F1E6', wood: '#E7D5B6', woodDark: '#BFA27A', inside: '#DCCFB7',
+  vignette: '70,40,18'
+};
+
+// 글자: [id, 문구, x, y, 크기, 쓰기 시작(초), 단계 번호]
+const TEXTS = [
+  { id: 'title', s: '아이스 아메리카노', x: 540, y: 335,  size: 106, t0: 0.0 },
+  { id: 'sub',   s: '한 잔이 되기까지',   x: 540, y: 508,  size: 58,  t0: 0.9 },
+  { id: 's1',    s: '볶은 원두',          x: 430, y: 1375, size: 74,  t0: 3.05, n: '1' },
+  { id: 's2',    s: '곱게 갈기',          x: 760, y: 2235, size: 74,  t0: 6.3,  n: '2' },
+  { id: 's3',    s: '에스프레소 추출',    x: 450, y: 3122, size: 64,  t0: 10.6, n: '3' },
+  { id: 's4',    s: '얼음 + 찬물',        x: 812, y: 3412, size: 62,  t0: 14.45, n: '4' },
+  { id: 's5',    s: '완성!',              x: 620, y: 4222, size: 76,  t0: 17.3, n: '5' },
+  { id: 'end',   s: '아이스 아메리카노', x: 620, y: 4340, size: 98,  t0: 20.15 },
+  { id: 'sign',  s: '손으로 그린 한 잔',  x: 620, y: 4418, size: 34,  t0: 20.75 }
+];
+
+// 장면 시간표 (초)
+const SC = {
+  underline: [0.7, 1.05],
+  beanFall: [0.9, 1.28], beanRoll: [1.62, 2.9],
+  bowlDraw: [2.05, 2.55], pile: [2.3, 2.95], steam: 3.3,
+  tilt: [4.15, 4.55], pourFirst: 4.3, pourGap: 0.025, flight: 0.65,
+  grinderDraw: [4.45, 5.45], crank: [5.75, 7.65], crankTurns: 2.4,
+  grains: [6.05, 8.1],
+  machineDraw: [8.25, 9.0], tamper: [8.95, 9.55], lift: [9.5, 9.85], click: [9.85, 10.0],
+  shotDraw: [9.55, 10.1], espresso: [10.15, 11.75], drips: [11.72, 11.84, 11.96],
+  walk: [12.0, 12.62], glassDraw: [12.3, 12.95], ice: [13.1, 13.45, 13.8],
+  water: [14.2, 15.15], pour: [15.35, 16.95], straw: [17.25, 17.55],
+  drops: [17.55, 18.15], sparkle: [17.3, 18.0], repaint: [18.35, 19.35], checks: [18.95, 19.45]
+};
+
+// 카메라: [시각, 바라보는 x, y, 배율, 도착 방식]  (slow 천천히 · whip 휙 · accel 가속 · zoom 확 줌인)
+const CAMERA = [
+  [0,     520,  380, 1.42, 'start'],
+  [1.9,   545,  470, 1.26, 'slow'],
+  [2.55,  445, 1060, 1.16, 'whip'],
+  [4.35,  450, 1070, 1.24, 'slow'],
+  [5.1,   640, 1890, 1.20, 'accel'],
+  [7.75,  650, 1930, 1.31, 'slow'],
+  [8.3,   450, 2790, 1.15, 'whip'],
+  [10.0,  445, 2805, 1.23, 'slow'],
+  [10.45, 448, 2960, 1.55, 'zoom'],
+  [11.95, 448, 2972, 1.63, 'slow'],
+  [12.6,  620, 3790, 1.06, 'whip'],
+  [15.3,  622, 3800, 1.13, 'slow'],
+  [18.25, 612, 3770, 1.28, 'slow'],
+  [18.85, 620, 2240, 0.43, 'accel'],
+  [19.55, 620, 2230, 0.45, 'slow'],
+  [20.12, 620, 4000, 1.07, 'zoom'],
+  [22,    620, 4010, 1.12, 'slow']
+];
+const BACK = { pos: 0.82, zoom: 0.72 };            // 뒤 낙서 층: 카메라 대비 위치·확대 비율
+
+/* =====================================================================
+   2. 수학 · 이징 · 결정적 난수
+   ===================================================================== */
+const TAU = Math.PI * 2;
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const lerp = (a, b, u) => a + (b - a) * u;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const eIO = u => u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+const eIO4 = u => u < .5 ? 8 * u * u * u * u : 1 - Math.pow(-2 * u + 2, 4) / 2;
+const eIn = u => u * u, eOut = u => 1 - Math.pow(1 - u, 3);
+const eSine = u => .5 - .5 * Math.cos(Math.PI * u);
+const smoother = u => u * u * u * (u * (u * 6 - 15) + 10);
+const eBack = u => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); };
+function rnd(a, b = 0, c = 0) {                      // 0..1, 같은 입력이면 항상 같은 값
+  let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 1274126177);
+  h = Math.imul(h ^ (h >>> 13), 1103515245); h ^= h >>> 16;
+  h = Math.imul(h ^ (h >>> 15), 2246822519); h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; };
+
+/* =====================================================================
+   3. 연필 선 엔진 — 점 흔들림 3벌 · 이중 선 · 펜으로 긋듯 나타남
+   ===================================================================== */
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const tmp = document.createElement('canvas'); tmp.width = W; tmp.height = H;
+const tctx = tmp.getContext('2d');
+let VAR = 0, GA = 1, CAMT = [1, 0, 0, 1, 0, 0], VIEW = { y0: 0, y1: 0 };
+
+function tracePts(P) {
+  const m = P.length / 2; ctx.moveTo(P[0], P[1]);
+  if (m < 3) { for (let i = 1; i < m; i++) ctx.lineTo(P[2 * i], P[2 * i + 1]); return; }
+  for (let i = 1; i < m - 1; i++) ctx.quadraticCurveTo(P[2 * i], P[2 * i + 1], (P[2 * i] + P[2 * i + 2]) / 2, (P[2 * i + 1] + P[2 * i + 3]) / 2);
+  ctx.lineTo(P[2 * m - 2], P[2 * m - 1]);
+}
+class Line {
+  constructor(pts, o = {}) {
+    const step = o.step || 12, closed = !!o.closed; this.salt = o.salt || 1; this.closed = closed;
+    const P = closed ? pts.concat([pts[0]]) : pts, out = [P[0]];
+    for (let i = 1; i < P.length; i++) {
+      const a = P[i - 1], b = P[i], n = Math.max(1, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / step));
+      for (let k = 1; k <= n; k++) out.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]);
+    }
+    if (closed) out.pop();
+    const n = out.length; this.n = n; this.pts = out;
+    const q = this.q = closed ? out.concat([out[0]]) : out;
+    this.cum = [0]; for (let i = 1; i < q.length; i++) this.cum.push(this.cum[i - 1] + Math.hypot(q[i][0] - q[i - 1][0], q[i][1] - q[i - 1][1]));
+    this.total = this.cum[this.cum.length - 1];
+    this.nm = out.map((p, i) => {
+      const a = out[closed ? (i - 1 + n) % n : Math.max(0, i - 1)], b = out[closed ? (i + 1) % n : Math.min(n - 1, i + 1)];
+      const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy) || 1; return [-dy / l, dx / l];
+    });
+    this.J = [null, null, null];
+  }
+  jit(v) {                                           // 점마다 좌우 ±2px 흔들림, 3벌
+    if (this.J[v]) return this.J[v];
+    const q = this.q, n = this.n, A = new Float32Array(q.length * 2);
+    for (let i = 0; i < q.length; i++) {
+      const k = i % n, o = (rnd(this.salt, k, v) - .5) * 4;
+      A[2 * i] = q[i][0] + this.nm[k][0] * o; A[2 * i + 1] = q[i][1] + this.nm[k][1] * o;
+    }
+    return this.J[v] = A;
+  }
+  at(s) {                                            // 경로 위 s 지점 [x, y, 각도]
+    const q = this.q, c = this.cum; s = clamp(s, 0, this.total);
+    let i = 1; while (i < q.length - 1 && c[i] < s) i++;
+    const u = (s - c[i - 1]) / ((c[i] - c[i - 1]) || 1);
+    return [lerp(q[i - 1][0], q[i][0], u), lerp(q[i - 1][1], q[i][1], u), Math.atan2(q[i][1] - q[i - 1][1], q[i][0] - q[i - 1][0])];
+  }
+  draw(o = {}) {
+    const p = o.p === undefined ? 1 : o.p; if (p <= 0.0005) return;
+    const w = o.w || 4, col = o.color || COLOR.ink, a = (o.alpha === undefined ? 1 : o.alpha) * GA;
+    strokeL(this, p, VAR, w, col, a);                // 진한 선
+    strokeL(this, p, (VAR + 1) % 3, w / 2, col, a * .45); // 절반 굵기·흐린 선
+  }
+  fill(col, a = 1) {
+    if (a <= 0) return;
+    ctx.beginPath(); tracePts(this.jit(VAR)); ctx.closePath();
+    ctx.globalAlpha = a * GA; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+  }
+}
+function strokeL(L, p, v, w, col, a) {
+  const J = L.jit(v), C = L.cum, m = J.length / 2, pts = [];
+  if (p >= 1) { for (let i = 0; i < J.length; i++) pts.push(J[i]); }
+  else {
+    const target = p * L.total;
+    for (let i = 0; i < m; i++) {
+      if (C[i] <= target) { pts.push(J[2 * i], J[2 * i + 1]); }
+      else { const u = (target - C[i - 1]) / ((C[i] - C[i - 1]) || 1); pts.push(lerp(J[2 * i - 2], J[2 * i], u), lerp(J[2 * i - 1], J[2 * i + 1], u)); break; }
+    }
+  }
+  if (pts.length < 4) return;
+  ctx.beginPath(); tracePts(pts);
+  ctx.globalAlpha = a; ctx.strokeStyle = col; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke(); ctx.globalAlpha = 1;
+}
+// 점 배열 만들기 도우미
+function arcPts(cx, cy, rx, ry, a0, a1, n = 16, rot = 0) {
+  const p = [], cs = Math.cos(rot), sn = Math.sin(rot);
+  for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n), x = Math.cos(a) * rx, y = Math.sin(a) * ry; p.push([cx + x * cs - y * sn, cy + x * sn + y * cs]); }
+  return p;
+}
+function ellPts(cx, cy, rx, ry, n = 24, rot = 0) { const p = arcPts(cx, cy, rx, ry, 0, TAU, n, rot); p.pop(); return p; }
+function rr(x, y, w, h, r) {
+  const p = [], c = [[x + w - r, y + r, -Math.PI / 2], [x + w - r, y + h - r, 0], [x + r, y + h - r, Math.PI / 2], [x + r, y + r, Math.PI]];
+  for (const [cx, cy, a] of c) for (let k = 0; k <= 4; k++) { const aa = a + k / 4 * Math.PI / 2; p.push([cx + Math.cos(aa) * r, cy + Math.sin(aa) * r]); }
+  return p;
+}
+function cr(P, k = 8, closed = false) {             // Catmull-Rom 곡선
+  const out = [], n = P.length, get = i => closed ? P[(i + n) % n] : P[Math.max(0, Math.min(n - 1, i))];
+  for (let i = 0; i < (closed ? n : n - 1); i++) {
+    const p0 = get(i - 1), p1 = get(i), p2 = get(i + 1), p3 = get(i + 2);
+    for (let j = 0; j < k; j++) {
+      const t = j / k, t2 = t * t, t3 = t2 * t, f = d => .5 * (2 * p1[d] + (-p0[d] + p2[d]) * t + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * t3);
+      out.push([f(0), f(1)]);
+    }
+  }
+  if (!closed) out.push(P[n - 1]);
+  return out;
+}
+let SALT = 1000;
+const L_ = (pts, o = {}) => new Line(pts, Object.assign({ salt: ++SALT }, o));
+const LC = (pts, o = {}) => L_(pts, Object.assign({ closed: true }, o));
+const dyn = (pts, salt = 7, step = 10) => new Line(pts, { step, salt });   // 매 프레임 만드는 선
+const vis = (y0, y1) => y1 > VIEW.y0 - 160 && y0 < VIEW.y1 + 160;
+
+/* =====================================================================
+   4. 글자 배치 (폰트가 준비되면 다시 계산)
+   ===================================================================== */
+let fontReady = false, layoutKey = null, LAY = {};
+const fontStr = s => `700 ${s}px "${FONT}","Gamja Flower","Noto Sans KR","Malgun Gothic","Apple SD Gothic Neo",sans-serif`;
+function layout() {
+  if (layoutKey === fontReady) return; layoutKey = fontReady; LAY = {};
+  TEXTS.forEach((it, idx) => {
+    ctx.font = fontStr(it.size);
+    let tw = ctx.measureText(it.s).width; const maxW = it.n ? 900 : 1040;     // 대체 폰트가 넓을 때 종이 밖으로 넘치지 않게
+    if (tw > maxW) { it.fit = maxW / tw; ctx.font = fontStr(it.size * it.fit); tw = ctx.measureText(it.s).width; } else it.fit = 1;
+    const L = { font: fontStr(it.size * it.fit), tw };
+    if (it.n) {
+      const r = it.size * .5, gap = it.size * .24, gw = 2 * r + gap + tw;
+      L.r = r; L.left = it.x - gw / 2; L.cx = L.left + r; L.tx = L.left + 2 * r + gap;
+      L.circle = L_(arcPts(L.cx, it.y, r * .98, r, -1.9, -1.9 + TAU * 1.07, 28), { step: 12 });
+      const k = it.size * .9, ox = L.tx + tw + it.size * .55, oy = it.y - it.size * .02;
+      L.check = L_([[ox - .3 * k, oy + .02 * k], [ox - .1 * k, oy + .32 * k], [ox + .38 * k, oy - .36 * k]].map(p => p), { step: 9 });
+    } else { L.tx = it.x - tw / 2; L.left = L.tx; }
+    L.tEnd = it.t0 + it.s.length / 10;
+    LAY[it.id] = L;
+  });
+  const T0 = LAY.title, y = 380, l = 540 - T0.tw / 2, r = 540 + T0.tw / 2;
+  LAY.under = L_(cr([[l, y + 5], [l + T0.tw * .3, y + 1], [l + T0.tw * .62, y + 3], [r, y - 2]], 8), { step: 14 });
+}
+function drawText(it) {
+  const t = TIME, L = LAY[it.id]; if (t < it.t0) return;
+  const n = Math.min(it.s.length, Math.floor((t - it.t0) * 10 + 1e-6));
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.font = L.font;
+  if (it.n) {
+    L.circle.draw({ p: prog(t, it.t0, it.t0 + .4) });
+    if (t > it.t0 + .22) {
+      ctx.font = fontStr(it.size * it.fit * .64); ctx.textAlign = 'center'; ctx.globalAlpha = clamp((t - it.t0 - .22) / .12);
+      ctx.fillStyle = COLOR.ink; ctx.fillText(it.n, L.cx, it.y + it.size * .02); ctx.font = L.font; ctx.textAlign = 'left';
+    }
+  }
+  if (n >= it.s.length && it.n) {                    // 다 써지면 형광 노랑 밑줄
+    const p = eOut(prog(t, L.tEnd, L.tEnd + .35)), yy = it.y + it.size * .4, x0 = L.tx - 6, x2 = L.tx + L.tw + 8, x1 = lerp(x0, x2, p);
+    if (p > 0) {
+      ctx.globalAlpha = GA; ctx.beginPath(); ctx.moveTo(x0, yy + 2); ctx.quadraticCurveTo((x0 + x1) / 2, yy + 3 + (VAR - 1) * 1.2, x1, yy - 2 * p);
+      ctx.strokeStyle = COLOR.highlight; ctx.lineWidth = it.size * .24; ctx.lineCap = 'round'; ctx.stroke();
+    }
+  }
+  if (n > 0) {                                        // 1초에 10칸씩 계단처럼
+    const wpart = ctx.measureText(it.s.slice(0, n)).width;
+    ctx.save(); ctx.beginPath(); ctx.rect(L.tx - 12, it.y - it.size, wpart + 12, it.size * 2); ctx.clip();
+    ctx.fillStyle = COLOR.ink; ctx.globalAlpha = GA; ctx.fillText(it.s, L.tx, it.y);
+    ctx.globalAlpha = .3 * GA; ctx.fillText(it.s, L.tx + (VAR - 1) * .9, it.y + (1 - VAR) * .5);
+    ctx.restore();
+  }
+}
+
+/* =====================================================================
+   5. 카메라
+   ===================================================================== */
+function camAt(t) {
+  const K = CAMERA; t = clamp(t, 0, DUR);
+  let i = 0; while (i < K.length - 2 && t >= K[i + 1][0]) i++;
+  const a = K[i], b = K[i + 1], m = b[4], u = clamp((t - a[0]) / (b[0] - a[0]));
+  let e;
+  if (m === 'slow') e = smoother(u);
+  else if (m === 'accel') e = Math.pow(u, 2.2);
+  else if (m === 'whip') e = eIO4(clamp(u / .8)) + .012 * Math.sin(Math.PI * clamp((u - .8) / .2));   // 짧고 빠르게, 도착해서 멈칫
+  else if (m === 'zoom') e = eIO(clamp((t - (b[0] - .16)) / .16));                                   // 한순간에 당김
+  else e = u;
+  return { x: lerp(a[1], b[1], e), y: lerp(a[2], b[2], e), z: a[3] * Math.pow(b[3] / a[3], e), whip: m === 'whip' };
+}
+function setCam(x, y, z) {
+  CAMT = [z, 0, 0, z, W / 2 - x * z, H / 2 - y * z]; ctx.setTransform(...CAMT);
+  VIEW = { y0: y - H / 2 / z, y1: y + H / 2 / z, x0: x - W / 2 / z, x1: x + W / 2 / z };
+}
+
+/* =====================================================================
+   6. 그림 재료 만들기 (한 번만)
+   ===================================================================== */
+function mkBean(rx, ry, seed) {
+  const pts = []; for (let i = 0; i < 22; i++) { const a = i / 22 * TAU, r = 1 + (rnd(seed, i, 5) - .5) * .07; pts.push([Math.cos(a) * rx * r, Math.sin(a) * ry * r]); }
+  const g = cr([[-rx * .86, ry * .08], [-rx * .45, -ry * .38], [0, 0], [rx * .45, ry * .38], [rx * .86, -ry * .08]], 6);
+  return { body: LC(pts, { step: 10 }), groove: L_(g, { step: 9 }) };
+}
+function drawBean(b, x, y, rot = 0, sx = 1, sy = 1, a = 1) {
+  if (a <= 0 || sx <= 0.02) return;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx, sy);
+  b.body.fill(COLOR.bean, a); b.body.draw({ alpha: a }); b.groove.draw({ color: COLOR.groove, w: 5, alpha: a });
+  ctx.restore();
+}
+const HERO = mkBean(36, 25, 11);
+const OB = [450, 1060];                                // 그릇 기준점
+const PILE = [[-100, -60], [-52, -62], [-4, -60], [44, -62], [92, -60], [-76, -94], [-28, -96], [20, -94], [68, -96], [-46, -128], [44, -126], [2, -130]]
+  .map((p, i) => ({ lx: p[0], ly: p[1], rot: (rnd(i, 3) - .5) * 2.2, bean: i === 11 ? HERO : mkBean(31, 22, 20 + i), hero: i === 11 }));
+const RANK = PILE.map((p, i) => i).sort((a, b) => PILE[b].lx - PILE[a].lx);       // 오른쪽 것부터 쏟아짐
+RANK.forEach((idx, r) => { PILE[idx].rank = r; PILE[idx].tl = SC.pourFirst + r * SC.pourGap; });
+PILE.forEach((p, i) => { p.tp = SC.pile[0] - .02 + i * .048; });
+
+const P1 = L_(cr([[760, 354], [835, 357], [895, 385], [925, 455], [905, 550], [830, 640], [690, 700], [560, 755], [490, 830], [452, 930]], 8), { step: 12 });
+const P2 = L_(cr([[612, 2172], [560, 2240], [460, 2310], [330, 2370], [255, 2470], [238, 2600], [262, 2720], [340, 2790], [420, 2830], [448, 2852]], 8), { step: 12 });
+const P3 = L_(cr([[450, 2965], [345, 3005], [205, 3040], [118, 3105], [85, 3200], [88, 3330], [130, 3480], [235, 3620], [345, 3725], [430, 3800]], 8), { step: 12 });
+const PATHS = [P1, P2, P3];
+const REPAINT = PATHS.map((p, i) => L_(p.pts, { step: 12, salt: 900 + i }));
+
+// 그릇
+const BOWL = {
+  body: L_(cr([[-150, -50], [-142, 0], [-102, 50], [-46, 86], [0, 94], [46, 86], [102, 50], [142, 0], [150, -50]], 6), { step: 12 }),
+  fill: LC(cr([[-150, -50], [-142, 0], [-102, 50], [-46, 86], [0, 94], [46, 86], [102, 50], [142, 0], [150, -50]], 6), { step: 12 }),
+  rim: LC(ellPts(0, -50, 150, 30, 30), { step: 14 }),
+  lip: L_(arcPts(0, -50, 150, 30, 0.05, Math.PI - 0.05, 18), { step: 14 }),
+  foot: L_([[-48, 94], [0, 100], [48, 94]], { step: 12 })
+};
+// 그라인더 (기준점: 호퍼 입구 중앙)
+const GR = {
+  hopBody: L_(cr([[-82, 0], [-70, 45], [-50, 94], [-40, 102], [40, 102], [50, 94], [70, 45], [82, 0]], 6), { step: 12 }),
+  hopFill: LC(cr([[-82, 0], [-70, 45], [-50, 94], [-40, 102], [40, 102], [50, 94], [70, 45], [82, 0]], 6), { step: 12 }),
+  hopTop: LC(ellPts(0, 0, 82, 15, 28), { step: 14 }),
+  spindle: L_([[0, 0], [0, -62]], { step: 12 }),
+  cap: LC(ellPts(0, -62, 9, 6, 10), { step: 8 }),
+  box: LC(rr(-76, 102, 152, 150, 10), { step: 14 }),
+  drawer: LC(rr(-56, 172, 112, 58, 8), { step: 14 }),
+  knob: LC(ellPts(0, 201, 7, 7, 10), { step: 8 }),
+  spout: LC([[-62, 252], [-62, 266], [-40, 266], [-40, 252]], { step: 8 })
+};
+// 에스프레소 머신 · 포터필터 · 탬퍼
+const MC = {
+  body: LC(rr(310, 2515, 280, 175, 24), { step: 14 }),
+  top: L_([[312, 2548], [588, 2548]], { step: 14 }),
+  gauge: LC(ellPts(368, 2612, 24, 24, 20), { step: 10 }),
+  needle: L_([[368, 2612], [384, 2598]], { step: 10 }),
+  b1: LC(ellPts(520, 2610, 12, 12, 12), { step: 8 }), b2: LC(ellPts(554, 2610, 12, 12, 12), { step: 8 }),
+  slot: L_([[440, 2570], [560, 2570]], { step: 14 }),
+  wand: L_([[590, 2580], [632, 2580], [636, 2700]], { step: 12 }),
+  head: LC([[395, 2690], [505, 2690], [517, 2740], [383, 2740]], { step: 12 })
+};
+const PF = {
+  handle: LC([[46, 12], [250, 26], [270, 40], [252, 56], [46, 44]], { step: 14 }),
+  body: L_(cr([[-54, 0], [-52, 20], [-44, 48], [-34, 60], [34, 60], [44, 48], [52, 20], [54, 0]], 5), { step: 12 }),
+  fill: LC(cr([[-54, 0], [-52, 20], [-44, 48], [-34, 60], [34, 60], [44, 48], [52, 20], [54, 0]], 5), { step: 12 }),
+  rim: LC(ellPts(0, 0, 54, 12, 24), { step: 12 }),
+  lip: L_(arcPts(0, 0, 54, 12, 0.05, Math.PI - 0.05, 12), { step: 12 }),
+  spout: LC([[-30, 60], [-30, 74], [30, 74], [30, 60]], { step: 10 }),
+  tipL: L_([[-14, 74], [-14, 83]], { step: 10 }), tipR: L_([[14, 74], [14, 83]], { step: 10 }),
+  mound: LC(cr([[-50, 2], [-42, -8], [-22, -18], [0, -24], [22, -18], [42, -8], [50, 2], [0, 7]], 5, true), { step: 10 })
+};
+const TP = {
+  base: LC(rr(-48, -14, 96, 14, 5), { step: 12 }), stem: LC(rr(-9, -90, 18, 76, 4), { step: 12 }),
+  knob: LC(rr(-38, -136, 76, 48, 22), { step: 12 })
+};
+const GRAIN = [0, 1, 2, 3].map(i => LC(ellPts(0, 0, 5 + i * .6, 4 + (i % 2), 7, i), { step: 20 }));
+const GRAINS = Array.from({ length: 36 }, (_, i) => ({ st: lerp(SC.grains[0], SC.grains[1] - .95, i / 35), off: (rnd(i, 9) - .5) * 16, k: i % 4, rot: rnd(i, 4) * TAU }));
+const GR_TRAVEL = .9;
+// 샷잔 (기준점: 중심)
+const SG = {
+  body: L_(cr([[-45, -45], [-41, 0], [-38, 44], [-20, 49], [20, 49], [38, 44], [41, 0], [45, -45]], 5), { step: 12 }),
+  fill: LC(cr([[-45, -45], [-41, 0], [-38, 44], [-20, 49], [20, 49], [38, 44], [41, 0], [45, -45]], 5), { step: 12 }),
+  rim: LC(ellPts(0, -45, 45, 7, 20), { step: 12 }),
+  base: L_([[-37, 36], [0, 40], [37, 36]], { step: 12 })
+};
+// 큰 유리잔
+const BG = {
+  left: L_(cr([[515, 3620], [522, 3800], [535, 4030]], 8), { step: 14 }),
+  right: L_(cr([[765, 3620], [758, 3800], [745, 4030]], 8), { step: 14 }),
+  bottom: L_(cr([[535, 4030], [560, 4052], [640, 4060], [720, 4052], [745, 4030]], 8), { step: 14 }),
+  rim: LC(ellPts(640, 3620, 125, 20, 34), { step: 14 }),
+  base: L_(cr([[548, 4005], [640, 4020], [732, 4005]], 8), { step: 14 }),
+  fill: LC(cr([[515, 3620], [522, 3800], [535, 4030], [560, 4052], [640, 4060], [720, 4052], [745, 4030], [758, 3800], [765, 3620]], 6), { step: 14 }),
+  clip: [[518, 3624], [762, 3624], [745, 4030], [720, 4050], [640, 4057], [560, 4050], [535, 4030]]
+};
+const CUBES = [
+  { x: 590, y: 3992, rot: -.18, t0: SC.ice[0], sh: LC(rr(-37, -37, 74, 74, 12), { step: 12 }), hl: L_([[-24, -14], [-24, -24], [-14, -26]], { step: 8 }) },
+  { x: 690, y: 3996, rot: .14, t0: SC.ice[1], sh: LC(rr(-37, -37, 74, 74, 12), { step: 12 }), hl: L_([[-24, -14], [-24, -24], [-14, -26]], { step: 8 }) },
+  { x: 640, y: 3925, rot: .22, t0: SC.ice[2], sh: LC(rr(-37, -37, 74, 74, 12), { step: 12 }), hl: L_([[-24, -14], [-24, -24], [-14, -26]], { step: 8 }) }
+];
+const DROPSHAPE = LC(cr([[0, -16], [7, -4], [10, 5], [0, 12], [-10, 5], [-7, -4]], 4, true), { step: 8 });
+const CONDENSE = [[560, 3700], [726, 3702], [584, 3790], [738, 3828], [562, 3892], [722, 3934], [606, 3650], [664, 3860], [602, 3955], [700, 3770]];
+const SPARK = [[478, 3690, -2.5], [452, 3862, 3.14], [818, 3652, -.7], [852, 3832, 0], [804, 4012, .8], [596, 3566, -1.7], [490, 4010, 2.4]]
+  .map(([x, y, a]) => [-.5, 0, .5].map((d, j) => L_([[x + Math.cos(a + d) * 22, y + Math.sin(a + d) * 22], [x + Math.cos(a + d) * (j === 1 ? 62 : 48), y + Math.sin(a + d) * (j === 1 ? 62 : 48)]], { step: 10 })));
+const STRAW = (() => {
+  const B = [668, 3985], T = [745, 3470], d = [T[0] - B[0], T[1] - B[1]], l = Math.hypot(d[0], d[1]), a = [d[0] / l, d[1] / l], n = [-a[1], a[0]];
+  const poly = [[B[0] + n[0] * 8, B[1] + n[1] * 8], [T[0] + n[0] * 8, T[1] + n[1] * 8], [T[0] - n[0] * 8, T[1] - n[1] * 8], [B[0] - n[0] * 8, B[1] - n[1] * 8]];
+  const stripes = []; for (let s = 40; s < l - 20; s += 64) { const c = [B[0] + a[0] * s, B[1] + a[1] * s]; stripes.push(L_([[c[0] - n[0] * 8, c[1] - n[1] * 8 + 8], [c[0] + n[0] * 8, c[1] + n[1] * 8 - 8]], { step: 8 })); }
+  return { a, l, poly: LC(poly, { step: 14 }), stripes, top: LC(ellPts(T[0], T[1], 8, 3.5, 10, Math.atan2(a[1], a[0]) + Math.PI / 2), { step: 8 }) };
+})();
+// 뒤쪽 낙서 층
+const DOODLES = [];
+(function () {
+  for (let gx = -1500, ix = 0; gx < 2700; gx += 300, ix++) for (let gy = -1500, iy = 0; gy < 6300; gy += 300, iy++) {
+    const id = ix * 100 + iy, cx = gx + rnd(id, 1) * 220, cy = gy + rnd(id, 2) * 220, k = Math.floor(rnd(id, 3) * 9), s = 34 + rnd(id, 4) * 26, rot = (rnd(id, 5) - .5) * .8;
+    let L, closed = false;
+    const place = pts => pts.map(p => { const x = p[0] * s, y = p[1] * s; return [cx + x * Math.cos(rot) - y * Math.sin(rot), cy + x * Math.sin(rot) + y * Math.cos(rot)]; });
+    if (k === 0) { const p = []; for (let i = 0; i < 10; i++) { const r = i % 2 ? .45 : 1, a = -Math.PI / 2 + i * Math.PI / 5; p.push([Math.cos(a) * r, Math.sin(a) * r]); } L = place(p); closed = true; }
+    else if (k === 1) { const p = []; for (let i = 0; i <= 40; i++) { const a = i * .35, r = .06 + i * .024; p.push([Math.cos(a) * r, Math.sin(a) * r]); } L = place(p); }
+    else if (k === 2) { L = place([[-.8, -.7], [-.7, .7], [.5, .7], [.6, -.7], [-.8, -.7], [.6, -.3], [1.1, -.3], [1.1, .3], [.55, .3]]); }
+    else if (k === 3) { const p = ellPts(0, 0, 1, .66, 16); L = place(p); closed = true; }
+    else if (k === 4) { const p = []; for (let i = 0; i < 28; i++) { const a = i / 28 * TAU; p.push([.06 * 16 * Math.pow(Math.sin(a), 3) * 1, -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * .06]); } L = place(p); closed = true; }
+    else if (k === 5) { L = place(cr([[-1, .5], [-.3, -.6], [.5, -.2], [.9, -.9], [.6, -.5]], 6)); }
+    else if (k === 6) { L = place([[-1, 0], [1, 0], [0, 0], [0, -1], [0, 1]]); }
+    else if (k === 7) { L = place([[-1, 0], [-.6, -.5], [-.2, .5], [.2, -.5], [.6, .5], [1, 0]]); }
+    else { L = place(cr([[0, 1], [-.4, .4], [.3, -.1], [-.3, -.7], [.1, -1.1]], 6)); }
+    DOODLES.push({ cx, cy, r: s * 1.4, L: new Line(L, { closed, step: 14, salt: 5000 + id }) });
+  }
+})();
+
+/* =====================================================================
+   7. 장면 그리기
+   ===================================================================== */
+let TIME = 0;
+const seqP = (t, a, b, i, n) => { const d = (b - a) / (1 + (n - 1) * .5), s = a + i * d * .5; return prog(t, s, s + d); };
+
+function drawPaper() {
+  ctx.globalAlpha = 1;
+  ctx.save(); ctx.shadowColor = 'rgba(40,24,8,.4)'; ctx.shadowBlur = 50; ctx.shadowOffsetX = 12; ctx.shadowOffsetY = 18;
+  ctx.fillStyle = COLOR.paper; ctx.fillRect(0, 0, PAPER.w, PAPER.h); ctx.restore();
+  ctx.fillStyle = COLOR.paper; ctx.fillRect(0, 0, PAPER.w, PAPER.h);
+  const y0 = Math.max(0, VIEW.y0), y1 = Math.min(PAPER.h, VIEW.y1), x0 = Math.max(0, VIEW.x0), x1 = Math.min(PAPER.w, VIEW.x1);
+  for (const big of [false, true]) {
+    ctx.beginPath(); ctx.strokeStyle = big ? COLOR.gridBig : COLOR.grid; ctx.lineWidth = big ? 2.2 : 1.4;
+    for (let x = Math.ceil(x0 / PAPER.cell) * PAPER.cell; x <= x1; x += PAPER.cell) if ((x % PAPER.big === 0) === big) { ctx.moveTo(x, y0); ctx.lineTo(x, y1); }
+    for (let y = Math.ceil(y0 / PAPER.cell) * PAPER.cell; y <= y1; y += PAPER.cell) if ((y % PAPER.big === 0) === big) { ctx.moveTo(x0, y); ctx.lineTo(x1, y); }
+    ctx.stroke();
+  }
+}
+
+/* --- 원두 한 알: 낙하 → 굴러가기 --- */
+function heroDrop(t) {
+  const yR = 354, ry = 25, tf = 1.07, ts = 1.13, tb = 1.21;
+  if (t < tf) { const u = prog(t, SC.beanFall[0], tf); return { y: lerp(-190, yR, u * u), sx: 1, sy: 1.08, rot: lerp(-1.4, .15, u) }; }
+  let sy, sx, y;
+  if (t < ts) { const k = (t - tf) / (ts - tf), sq = Math.sin(k * Math.PI / 2); sy = 1 - .38 * sq; sx = 1 + .3 * sq; y = yR + ry * (1 - sy); }
+  else if (t < tb) { const k = (t - ts) / (tb - ts); sy = lerp(.62, 1, smoother(k)) + .1 * Math.sin(Math.PI * k); sx = 1 + (1 - sy) * .8; y = yR + ry * (1 - sy) - 36 * Math.sin(Math.PI * k); }
+  else { const k = prog(t, tb, SC.beanFall[1]), sq = Math.sin(Math.PI * k) * .14; sy = 1 - sq; sx = 1 + sq * .8; y = yR + ry * (1 - sy); }
+  return { y, sx, sy, rot: .15 };
+}
+function sceneTitleBean(t) {
+  if (t > SC.underline[0]) LAY.under.draw({ p: eOut(prog(t, SC.underline[0], SC.underline[1])) });
+  const Ls = P1.total, u = prog(t, SC.beanRoll[0], SC.beanRoll[1]), s = Ls * smoother(u);
+  if (t >= 1.55) P1.draw({ p: clamp(s / Ls + .06 * prog(t, 1.55, 1.7)) });
+  if (t < SC.beanFall[0] || t >= SC.beanRoll[1]) return;
+  if (t < SC.beanRoll[0]) { const d = heroDrop(t); drawBean(HERO, 760, d.y, d.rot, d.sx, d.sy); }
+  else { const p = P1.at(s); drawBean(HERO, p[0], p[1], .15 + s / 27, 1, 1); }
+}
+
+/* --- 그릇 · 원두 더미 · 김 --- */
+function bowlTheta(t) { return .95 * eIO(prog(t, SC.tilt[0], SC.tilt[1])) * (1 - eIO(prog(t, 4.8, 5.25))); }
+function sceneBowl(t) {
+  if (t < SC.bowlDraw[0] || !vis(840, 1180)) return;
+  const th = bowlTheta(t);
+  ctx.save(); ctx.translate(OB[0], OB[1]); ctx.rotate(th);
+  const fa = prog(t, 2.25, 2.5);
+  BOWL.fill.fill(COLOR.wash, fa);
+  BOWL.body.draw({ p: prog(t, SC.bowlDraw[0], 2.35) });
+  BOWL.foot.draw({ p: prog(t, 2.3, 2.45) });
+  BOWL.rim.fill(COLOR.inside, fa); BOWL.rim.draw({ p: prog(t, 2.3, SC.bowlDraw[1]) });
+  PILE.forEach(b => {
+    if (b.hero && t < SC.beanRoll[1]) return;
+    let lx = b.lx, ly = b.ly, sc = 1, hop = 0;
+    if (t < b.tp + .14 && !b.hero) { const u = prog(t, b.tp, b.tp + .14); sc = u <= 0 ? 0 : eBack(u); hop = -22 * Math.sin(Math.PI * u); }
+    if (t < b.tp && !b.hero) return;
+    if (t >= b.tl - .14) {
+      if (t >= b.tl) return;
+      const s = eIn(prog(t, b.tl - .14, b.tl)); lx = lerp(lx, 132, s); ly = lerp(ly, -56, s);
+    }
+    drawBean(b.bean, lx, ly + hop, b.rot, sc, sc);
+  });
+  BOWL.lip.draw({ p: prog(t, 2.35, SC.bowlDraw[1]) });
+  ctx.restore();
+  // 김
+  const env = prog(t, SC.steam, SC.steam + .3) * (1 - prog(t, 4.0, 4.3));
+  if (env > 0) for (let k = 0; k < 3; k++) {
+    const u = ((t - SC.steam) * .42 + k / 3) % 1, bx = 405 + k * 45, pts = [];
+    for (let i = 0; i < 9; i++) pts.push([bx + 14 * Math.sin(i * .7 + t * 3 + k * 2), 880 - u * 110 - i * 11]);
+    dyn(pts, 60 + k).draw({ w: 3.5, alpha: Math.sin(Math.PI * u) * env * .8 });
+  }
+}
+/* --- 쏟아지는 원두 → 그라인더 호퍼 --- */
+function sceneFlyingBeans(t) {
+  if (t < SC.pourFirst || t > 5.7) return;
+  PILE.forEach(b => {
+    if (t < b.tl) return;
+    const th = bowlTheta(b.tl), cs = Math.cos(th), sn = Math.sin(th), lx = 132, ly = -56;
+    const x0 = OB[0] + lx * cs - ly * sn, y0 = OB[1] + lx * sn + ly * cs;
+    const xT = 660 + (b.rank - 5.5) * 8, yT = 1896, u = prog(t, b.tl, b.tl + SC.flight);
+    const x = lerp(x0, xT, u), y = y0 + -260 * u + (yT - y0 + 260) * u * u;
+    const w = prog(t, b.tl + SC.flight, b.tl + SC.flight + .16);
+    if (w >= 1) return;
+    drawBean(b.bean, x, y + 28 * w, b.rot + u * 5, 1 - w, 1 - w, 1);
+  });
+}
+/* --- 핸드 그라인더 --- */
+function sceneGrinder(t) {
+  if (t < SC.grinderDraw[0] || !vis(1880, 2180)) return;
+  const [a, b] = SC.grinderDraw, env = prog(t, SC.crank[0], SC.crank[0] + .2) * (1 - prog(t, SC.crank[1] - .15, SC.crank[1]));
+  const shx = env * Math.sin(t * 71) * 2.4, shy = env * Math.cos(t * 83) * 1.6;
+  ctx.save(); ctx.translate(660 + shx, 1900 + shy);
+  const f = (i) => seqP(t, a, b, i, 6);
+  GR.hopFill.fill(COLOR.wash, f(0)); GR.hopBody.draw({ p: f(0) });
+  GR.hopTop.fill(COLOR.inside, f(1)); GR.hopTop.draw({ p: f(1) });
+  GR.box.fill(COLOR.wood, f(3)); GR.box.draw({ p: f(3) });
+  GR.drawer.fill(COLOR.woodDark, f(4)); GR.drawer.draw({ p: f(4) }); GR.knob.draw({ p: f(4) });
+  GR.spout.fill(COLOR.wash, f(5)); GR.spout.draw({ p: f(5) });
+  GR.spindle.draw({ p: f(2), w: 5 }); GR.cap.draw({ p: f(2) });
+  if (t > 5.15) {
+    const q = prog(t, 5.15, 5.45), phi = .6 + TAU * SC.crankTurns * smoother(prog(t, SC.crank[0], SC.crank[1]));
+    const kx = 62 * Math.cos(phi), ky = -62 + 12 * Math.sin(phi);
+    dyn([[0, -62], [kx * .5, -62 + (ky + 62) * .5], [kx, ky]], 70).draw({ w: 7, p: q });
+    if (q > .6) {
+      dyn([[kx, ky], [kx, ky - 30]], 71).draw({ w: 8 });
+      const ball = LC(ellPts(kx, ky - 36, 12, 11, 12), { step: 8, salt: 72 }); ball.fill(COLOR.woodDark, 1); ball.draw({ w: 4 });
+    }
+  }
+  ctx.restore();
+}
+/* --- 포터필터 · 탬퍼 · 머신 --- */
+function pfOrigin(t) {
+  let y = 2860; y = lerp(2860, 2745, eIO(prog(t, SC.lift[0], SC.lift[1])));
+  y += 2.5 * Math.sin(Math.PI * prog(t, 9.17, 9.32));
+  return [450, y, .07 * Math.sin(Math.PI * prog(t, SC.click[0], SC.click[1]))];
+}
+function grainsLanded(t) { let c = 0; for (const g of GRAINS) if (t >= g.st + GR_TRAVEL) c++; return c; }
+function sceneMachine(t) {
+  if (t < 5.9 || !vis(2100, 3100)) return;
+  // 가루 경로 + 흐르는 가루
+  if (t >= SC.grains[0] - .1) P2.draw({ p: prog(t, SC.grains[0] - .1, SC.grains[0] + .75) });
+  // 머신 머리
+  if (t >= SC.machineDraw[0]) {
+    const [a, b] = SC.machineDraw, f = i => seqP(t, a, b, i, 6);
+    MC.body.fill(COLOR.wash, f(0)); MC.body.draw({ p: f(0) }); MC.top.draw({ p: f(1) });
+    MC.gauge.draw({ p: f(2) }); MC.needle.draw({ p: f(2) }); MC.b1.draw({ p: f(3) }); MC.b2.draw({ p: f(3) }); MC.slot.draw({ p: f(3) });
+    MC.wand.draw({ p: f(4) }); MC.head.fill(COLOR.wood, f(5)); MC.head.draw({ p: f(5) });
+  }
+  // 포터필터
+  const [px, py, pr] = pfOrigin(t);
+  const press = eOut(prog(t, 9.17, 9.27));
+  const landed = grainsLanded(t), H0 = 24 * Math.pow(landed / GRAINS.length, .8), Hm = H0 * (1 - .75 * press);
+  ctx.save(); ctx.translate(px, py); ctx.rotate(pr);
+  PF.handle.fill(COLOR.woodDark, 1); PF.handle.draw({ p: prog(t, 6.0, 6.5) });
+  PF.fill.fill(COLOR.wash, 1); PF.body.draw({ p: prog(t, 6.2, 6.6) }); PF.spout.fill(COLOR.wash, 1); PF.spout.draw({ p: prog(t, 6.4, 6.7) });
+  PF.tipL.draw({ p: prog(t, 6.5, 6.7) }); PF.tipR.draw({ p: prog(t, 6.5, 6.7) });
+  PF.rim.fill(COLOR.inside, prog(t, 6.4, 6.7)); PF.rim.draw({ p: prog(t, 6.4, 6.75) });
+  if (Hm > .6) { ctx.save(); ctx.scale(1 + .05 * press, Hm / 24); PF.mound.fill(COLOR.grain, 1); PF.mound.draw({ w: 3.4 }); ctx.restore(); }
+  PF.lip.draw({ p: prog(t, 6.4, 6.75) });
+  ctx.restore();
+  // 흐르는 가루 알갱이
+  GRAINS.forEach(g => {
+    const u = (t - g.st) / GR_TRAVEL; if (u < 0 || u >= 1) return;
+    const s = P2.total * (.4 * u + .6 * u * u), p = P2.at(s), o = g.off * (1 - u * .8);
+    ctx.save(); ctx.translate(p[0] - Math.sin(p[2]) * o, p[1] + Math.cos(p[2]) * o); ctx.rotate(g.rot + u * 6);
+    GRAIN[g.k].fill(COLOR.grain, 1); GRAIN[g.k].draw({ w: 2.6 }); ctx.restore();
+  });
+  // 탬퍼
+  if (t >= SC.tamper[0] && t < 9.7) {
+    const down = eIn(prog(t, SC.tamper[0], 9.17)), base = py + 2 - H0 * (1 - .75 * press), up = eOut(prog(t, 9.3, SC.tamper[1]));
+    const by = base - 330 * (1 - down) - 340 * up, sq = Math.sin(Math.PI * prog(t, 9.17, 9.3));
+    ctx.save(); ctx.translate(450, by); ctx.scale(1 + .08 * sq, 1 - .1 * sq);
+    TP.stem.fill(COLOR.wash, 1); TP.stem.draw(); TP.knob.fill(COLOR.woodDark, 1); TP.knob.draw(); TP.base.fill(COLOR.wood, 1); TP.base.draw();
+    ctx.restore();
+  }
+  // 딸깍
+  const ck = prog(t, SC.click[0], SC.click[1] + .12);
+  if (ck > 0 && ck < 1) for (const sgn of [-1, 1]) dyn([[450 + sgn * 78, 2742], [450 + sgn * (90 + 14 * ck), 2732 - 6 * ck]], 80 + sgn).draw({ w: 4, p: clamp(ck * 3) });
+}
+/* --- 샷잔 · 에스프레소 --- */
+function shotLevelF(t) {
+  if (t < SC.espresso[0]) return 0;
+  if (t < SC.pour[0] + .45) return eSine(prog(t, SC.espresso[0], SC.espresso[1]));
+  return Math.max(.05, 1 - eSine(prog(t, 15.8, 16.55)));
+}
+function shotPose(t) {                                  // 샷잔 위치·기울기
+  if (t < SC.walk[0]) return { x: 450, y: 2957, rot: 0 };
+  if (t < SC.pour[0]) {
+    const u = prog(t, SC.walk[0], SC.walk[1]), p = P3.at(P3.total * eSine(u)), env = 1 - Math.pow(u, 4), ph = Math.sin(u * TAU * 4);
+    return { x: p[0], y: p[1] - 8 * Math.abs(ph) * env, rot: .2 * ph * env };
+  }
+  const up = eIO(prog(t, SC.pour[0], 15.85)), back = eIO(prog(t, 16.55, SC.pour[1])), k = up * (1 - back);
+  const tilt = (1.75 * up + .15 * prog(t, 15.85, 16.5)) * (1 - back);
+  return { x: lerp(430, 560, k), y: lerp(3800, 3545, k) - 30 * Math.sin(Math.PI * k), rot: tilt };
+}
+function drawShot(t) {
+  const P = shotPose(t), f = shotLevelF(t), tiltF = clamp(P.rot / 1.75);
+  ctx.save(); ctx.translate(P.x, P.y); ctx.rotate(P.rot);
+  SG.fill.fill(COLOR.ice, .35 * prog(t, SC.shotDraw[0] + .3, SC.shotDraw[1]));
+  if (f > .01) {
+    ctx.save(); ctx.beginPath(); ctx.moveTo(-45, -45); ctx.lineTo(45, -45); ctx.lineTo(38, 46); ctx.lineTo(-38, 46); ctx.closePath(); ctx.clip();
+    ctx.setTransform(...CAMT);
+    const off = lerp(45 - 70 * f, 44 - 28 * f, tiltF), ly = P.y + off, cth = 14 * prog(t, 10.8, 11.6) * Math.min(1, f * 3);
+    ctx.globalAlpha = GA; ctx.fillStyle = COLOR.crema; ctx.fillRect(P.x - 150, ly, 300, cth + 2);
+    ctx.fillStyle = COLOR.coffee; ctx.fillRect(P.x - 150, ly + cth, 300, 200);
+    ctx.restore();
+  }
+  SG.rim.draw({ p: prog(t, SC.shotDraw[0], SC.shotDraw[0] + .25), w: 3.4 });
+  SG.body.draw({ p: prog(t, SC.shotDraw[0] + .1, SC.shotDraw[1]) }); SG.base.draw({ p: prog(t, SC.shotDraw[0] + .3, SC.shotDraw[1]), w: 3 });
+  ctx.restore();
+}
+function sceneShot(t) {
+  if (t < SC.shotDraw[0]) return;
+  // 에스프레소 줄기
+  if (t >= SC.espresso[0] && t < SC.espresso[1] + .05) {
+    const fl = shotLevelF(t), ly = 2957 + 45 - 70 * fl, head = prog(t, SC.espresso[0], SC.espresso[0] + .15), tail = prog(t, SC.espresso[1] - .25, SC.espresso[1]);
+    for (const sx of [-14, 14]) {
+      const pts = []; const y0 = lerp(2829, ly, tail), y1 = lerp(2829, ly, head);
+      for (let i = 0; i <= 8; i++) { const y = lerp(y0, y1, i / 8); pts.push([450 + sx * (1 - .5 * (y - 2829) / 130) + 1.6 * Math.sin(y * .08 + t * 9 + sx), y]); }
+      if (y1 - y0 > 3) dyn(pts, 90 + sx).draw({ w: 6, color: COLOR.coffee });
+    }
+  }
+  // 똑똑 방울
+  SC.drips.forEach((d, i) => {
+    const u = prog(t, d, d + .24); if (u <= 0 || u >= 1) return;
+    const x = 450 + (i % 2 ? 14 : -14), y = lerp(2832, 2957 + 45 - 70 * .97, u * u);
+    ctx.save(); ctx.translate(x, y); ctx.scale(.7, .9); DROPSHAPE.fill(COLOR.coffee, 1); DROPSHAPE.draw({ w: 3, color: COLOR.coffee }); ctx.restore();
+  });
+  if (t >= SC.walk[0] - .05) P3.draw({ p: clamp(eSine(prog(t, SC.walk[0], SC.walk[1])) + .06 * prog(t, SC.walk[0] - .05, SC.walk[0] + .1)) });
+  drawShot(t);
+}
+
+/* --- 큰 유리잔 · 얼음 · 물 · 커피 --- */
+function waterY(t) {
+  const fill = eSine(prog(t, SC.water[0], SC.water[1])), cof = eSine(prog(t, 15.8, SC.pour[1]));
+  return 4030 - 285 * fill - 10 * cof;
+}
+function cubePose(c, t) {
+  const u = t - c.t0; if (u < 0) return null;
+  const fall = .27; let y, sx = 1, sy = 1, rot = c.rot;
+  if (u < fall) { const k = u / fall; y = lerp(3380, c.y, k * k); rot = c.rot - 1.1 * (1 - k); sy = 1.05; }
+  else {
+    const v = u - fall; y = c.y;
+    if (v < .07) { const sq = Math.sin(Math.PI * v / .07); sy = 1 - .32 * sq; sx = 1 + .22 * sq; }
+    else if (v < .22) { const k = (v - .07) / .15, s = Math.sin(Math.PI * k); y -= 38 * s; sy = 1 + .08 * s; sx = 1 - .04 * s; }
+    else if (v < .32) { const sq = Math.sin(Math.PI * (v - .22) / .1) * .12; sy = 1 - sq; sx = 1 + sq; }
+  }
+  return { x: c.x, y: y + 37 * (1 - sy), rot, sx, sy, v: u - fall };
+}
+function sceneGlass(t) {
+  if (t < SC.glassDraw[0] || !vis(3300, 4100)) return;
+  const [a, b] = SC.glassDraw, f = i => seqP(t, a, b, i, 5);
+  BG.fill.fill(COLOR.ice, .24 * prog(t, 12.7, 12.95));
+  BG.rim.draw({ p: f(0), w: 4 }); BG.left.draw({ p: f(1) }); BG.right.draw({ p: f(2) }); BG.bottom.draw({ p: f(3) }); BG.base.draw({ p: f(4), w: 3 });
+  const wl = waterY(t);
+  // 물 + 커피 (잔 안쪽으로 잘림)
+  if (t >= SC.water[0] + .05) {
+    const amp = t < SC.water[1] ? 4 : 7 * Math.exp(-3 * (t - SC.water[1])) + 3 * Math.exp(-Math.pow(t - 16.2, 2) * 3);
+    const wave = x => wl + amp * Math.sin(x * .045 + t * 8);
+    ctx.save(); ctx.beginPath(); BG.clip.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); ctx.closePath(); ctx.clip();
+    ctx.beginPath(); ctx.moveTo(500, wave(500)); for (let x = 500; x <= 780; x += 14) ctx.lineTo(x, wave(x)); ctx.lineTo(780, 4100); ctx.lineTo(500, 4100); ctx.closePath();
+    ctx.globalAlpha = .9 * GA; ctx.fillStyle = COLOR.water; ctx.fill(); ctx.clip();
+    const cof = eSine(prog(t, 15.8, SC.pour[1]));
+    if (cof > 0) {
+      const yc = lerp(4075, wl - 8, cof), g = ctx.createLinearGradient(0, yc - 90, 0, yc);
+      g.addColorStop(0, rgba(COLOR.coffee, 0)); g.addColorStop(1, rgba(COLOR.coffee, .93));
+      ctx.globalAlpha = GA; ctx.fillStyle = g; ctx.fillRect(500, yc - 90, 280, 4100 - (yc - 90));
+    }
+    const sw = prog(t, 15.95, 16.25) * (1 - prog(t, 17.0, 17.4));
+    if (sw > 0) for (let k = 0; k < 3; k++) {
+      const ph = t * 4.5 + k * 1.7, cy = wl + 45 + k * 58;
+      dyn(arcPts(640, cy, 95 - k * 22, 17 - k * 3, ph, ph + 3.3, 14), 120 + k, 9).draw({ w: 3.5, color: COLOR.crema, alpha: sw });
+    }
+    ctx.restore();
+    const sp = []; for (let x = 524; x <= 756; x += 12) sp.push([x, wave(x)]);
+    dyn(sp, 130, 12).draw({ w: 3, color: COLOR.iceEdge, alpha: .85 });
+  }
+  // 얼음
+  const lift = 28 * eOut(prog(t, 14.3, 15.2));
+  CUBES.forEach((c, i) => {
+    const ps = cubePose(c, t); if (!ps) return;
+    const fl = t > 14.3 ? lift + 2.5 * Math.sin(t * 3 + i * 2) * prog(t, 14.4, 15) : 0;
+    ctx.save(); ctx.translate(ps.x, ps.y - fl * (ps.v > .35 ? 1 : 0)); ctx.rotate(ps.rot); ctx.scale(ps.sx, ps.sy);
+    c.sh.fill(COLOR.ice, .88); c.sh.draw({ color: COLOR.iceEdge }); c.hl.draw({ color: COLOR.iceEdge, w: 3 });
+    ctx.restore();
+    // 물방울 튐
+    const v = t - c.t0 - .27;
+    if (v > 0 && v < .45) for (let k = 0; k < 4; k++) {
+      const vx = [-90, -40, 45, 95][k], vy = [-300, -380, -340, -290][k], x = c.x + vx * v, y = c.y - 30 + vy * v + 520 * v * v, al = 1 - v / .45;
+      ctx.save(); ctx.translate(x, y); ctx.scale(.45 * al + .2, .55 * al + .2); DROPSHAPE.fill(COLOR.ice, 1); DROPSHAPE.draw({ color: COLOR.iceEdge, w: 4, alpha: al }); ctx.restore();
+    }
+  });
+  // 찬물 줄기
+  if (t >= SC.water[0] && t < SC.water[1] + .05) {
+    const sx = Math.min(610, Math.max(545, LAY.s4.left - 30)), head = prog(t, SC.water[0], SC.water[0] + .12), tail = prog(t, SC.water[1] - .2, SC.water[1]);
+    const y0 = lerp(3200, wl, tail), y1 = lerp(3200, wl, head), L = [], R = [];
+    for (let i = 0; i <= 10; i++) { const y = lerp(y0, y1, i / 10), w = lerp(9, 6, (y - 3200) / 600), x = sx + 2.5 * Math.sin(y * .04 + t * 10); L.push([x - w, y]); R.push([x + w, y]); }
+    if (y1 - y0 > 4) {
+      ctx.beginPath(); L.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); R.slice().reverse().forEach(p => ctx.lineTo(p[0], p[1])); ctx.closePath();
+      ctx.globalAlpha = .75 * GA; ctx.fillStyle = COLOR.ice; ctx.fill();
+      dyn(L, 140).draw({ w: 3, color: COLOR.iceEdge }); dyn(R, 141).draw({ w: 3, color: COLOR.iceEdge });
+    }
+  }
+  // 샷잔에서 따르는 커피 줄기
+  if (t >= 15.8 && t < 16.62) {
+    const P = shotPose(t), cs = Math.cos(P.rot), sn = Math.sin(P.rot), lx = 45, ly = -45, lip = [P.x + lx * cs - ly * sn, P.y + lx * sn + ly * cs];
+    const head = prog(t, 15.8, 15.9), k0 = Math.floor(12 * prog(t, 16.45, 16.6)), sy = wl + 4, pts = [];
+    for (let i = k0; i <= 12 * head; i++) { const u = i / 12; pts.push([lip[0] + 34 * Math.sin(u * Math.PI / 2) + 3 * Math.sin(u * 9 + t * 10), lip[1] + (sy - lip[1]) * Math.pow(u, 1.6)]); }
+    if (pts.length > 1) dyn(pts, 150).draw({ w: 7 - 2 * prog(t, 16, 16.5), color: COLOR.coffee });
+  }
+  // 빨대
+  if (t >= SC.straw[0]) {
+    const slide = 330 * (1 - eOut(prog(t, SC.straw[0], SC.straw[1]))), w = t > SC.straw[1] ? .045 * Math.sin((t - SC.straw[1]) * 16) * Math.exp(-(t - SC.straw[1]) * 4) : 0;
+    ctx.save(); ctx.translate(721, 3630); ctx.rotate(w); ctx.translate(-721, -3630); ctx.translate(STRAW.a[0] * slide, STRAW.a[1] * slide);
+    STRAW.poly.fill('#FBF8F0', .9); STRAW.poly.draw({ w: 3.4 }); STRAW.top.draw({ w: 3 }); STRAW.stripes.forEach(s => s.draw({ w: 4, color: COLOR.iceEdge }));
+    ctx.restore();
+  }
+  // 물방울 맺힘
+  CONDENSE.forEach((p, i) => {
+    const s0 = SC.drops[0] + i * (SC.drops[1] - SC.drops[0] - .15) / (CONDENSE.length - 1), u = prog(t, s0, s0 + .15); if (u <= 0) return;
+    const sc = eBack(u) * (.8 + rnd(i, 6) * .5);
+    ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(sc, sc); DROPSHAPE.fill(COLOR.ice, .8); DROPSHAPE.draw({ color: COLOR.iceEdge, w: 3.2 }); ctx.restore();
+  });
+  // 반짝임 선
+  SPARK.forEach((ls, i) => { const s0 = SC.sparkle[0] + .1 + i * .09; ls.forEach((L, j) => L.draw({ p: prog(t, s0 + j * .03, s0 + .17 + j * .03), w: 4 })); });
+}
+/* --- 경로 덧칠 · 체크 --- */
+function sceneRepaint(t) {
+  if (t < SC.repaint[0]) return;
+  const u = prog(t, SC.repaint[0], SC.repaint[1]), tot = P1.total + P2.total + P3.total; let acc = 0;
+  PATHS.forEach((P, i) => { const p = clamp((u * tot - acc) / P.total); acc += P.total; REPAINT[i].draw({ p, w: 9, color: COLOR.repaint, alpha: .55 }); });
+}
+function sceneChecks(t) {
+  ['s1', 's2', 's3', 's4'].forEach((id, i) => { const s0 = SC.checks[0] + i * .15; LAY[id].check.draw({ p: eOut(prog(t, s0, s0 + .2)), w: 8, color: COLOR.check }); });
+}
+
+/* =====================================================================
+   8. render(t) — 모든 것은 시간 t 하나로 결정됩니다
+   ===================================================================== */
+function render(t) {
+  TIME = t; VAR = Math.floor(t * 12) % 3; GA = 1; layout();
+  const c = camAt(t);
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = COLOR.desk; ctx.fillRect(0, 0, W, H);
+  // 뒤 낙서 층 (카메라보다 느리게)
+  const bx = 600 + (c.x - 600) * BACK.pos, by = 2300 + (c.y - 2300) * BACK.pos, bz = 1 + (c.z - 1) * BACK.zoom;
+  setCam(bx, by, bz);
+  for (const d of DOODLES) if (d.cx + d.r > VIEW.x0 && d.cx - d.r < VIEW.x1 && d.cy + d.r > VIEW.y0 && d.cy - d.r < VIEW.y1) d.L.draw({ w: 3, color: COLOR.doodle, alpha: .2 });
+  // 종이
+  setCam(c.x, c.y, c.z);
+  drawPaper();
+  sceneRepaint(t);
+  sceneTitleBean(t);
+  sceneBowl(t); sceneFlyingBeans(t);
+  sceneGrinder(t);
+  sceneMachine(t);
+  sceneShot(t);
+  sceneGlass(t);
+  TEXTS.forEach(drawText);
+  if (t >= SC.checks[0]) sceneChecks(t);
+  // 화면 효과
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  if (c.whip) motionBlur(t, c);
+  const g = ctx.createRadialGradient(W / 2, H / 2, 380, W / 2, H / 2, 1180);
+  g.addColorStop(0, `rgba(${COLOR.vignette},0)`); g.addColorStop(1, `rgba(${COLOR.vignette},.4)`);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+function motionBlur(t, c) {
+  const c2 = camAt(t - .03); let dx = (c2.x - c.x) * c.z, dy = (c2.y - c.y) * c.z, len = Math.hypot(dx, dy);
+  if (len < 5) return; if (len > 170) { dx *= 170 / len; dy *= 170 / len; }
+  tctx.setTransform(1, 0, 0, 1, 0, 0); tctx.drawImage(cv, 0, 0);
+  const F = [0, -.5, .5, -.25, .25, -.4, .4, .12];
+  F.forEach((f, i) => { ctx.globalAlpha = 1 / (i + 1); ctx.drawImage(tmp, dx * f, dy * f); });
+  ctx.globalAlpha = 1;
+}
+
+/* =====================================================================
+   9. 재생 장치
+   ===================================================================== */
+const $play = document.getElementById('play'), $seek = document.getElementById('seek'), $tm = document.getElementById('tm');
+let playing = true, last = null, T = 0, dirty = true;
+function fit() {
+  const st = document.getElementById('stage'), s = Math.min((st.clientWidth - 16) / W, (st.clientHeight - 8) / H);
+  cv.style.width = Math.floor(W * s) + 'px'; cv.style.height = Math.floor(H * s) + 'px';
+}
+function ui() { $seek.value = T; $tm.textContent = T.toFixed(1) + ' / ' + DUR.toFixed(1); $play.textContent = playing ? '❚❚' : '▶'; }
+function tick(now) {
+  if (last === null) last = now;
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  if (playing) { T += dt; if (T >= DUR) T -= DUR; dirty = true; }
+  if (dirty) { render(T); ui(); dirty = false; }
+  requestAnimationFrame(tick);
+}
+$play.onclick = () => { playing = !playing; ui(); };
+$seek.oninput = () => { T = parseFloat($seek.value); dirty = true; };
+addEventListener('resize', fit); fit();
+window.renderAt = t => { T = t; render(t); };         // 점검용: 어느 순간이든 같은 그림
+window.addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); $play.click(); } });
+const allText = TEXTS.map(i => i.s).join('');
+const fontWait = (document.fonts && document.fonts.load) ? Promise.race([document.fonts.load(`700 60px "${FONT}"`, allText), new Promise(r => setTimeout(r, 2500))]) : Promise.resolve();
+fontWait.catch(() => {}).then(() => { fontReady = true; dirty = true; });
+layout(); ui(); requestAnimationFrame(tick);
+</script>
+</body>
+</html>
