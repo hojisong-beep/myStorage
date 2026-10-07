@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>귀여운 고양이 제로</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gaegu:wght@700&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;height:100%;background:#1d1814;color:#ECE6DA;font-family:'Gaegu',sans-serif;overflow:hidden}
+  #app{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  canvas{display:block;background:#000}
+  #bar{display:flex;align-items:center;gap:12px;height:52px}
+  #play{width:44px;height:36px;border:0;border-radius:8px;background:#ECE6DA;color:#2E2622;font-size:18px;cursor:pointer}
+  #seek{flex:1;accent-color:#B2432F}
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="c" width="1080" height="1920"></canvas>
+  <div id="bar"><button id="play" aria-label="재생/일시정지">❚❚</button><input id="seek" type="range" min="0" max="24" step="0.01" value="0"></div>
+</div>
+<script>
+'use strict';
+/* =====================================================================
+   CONFIG — 문구, 색, 장면 시간표, 카메라 위치는 모두 여기서 고칩니다.
+   ===================================================================== */
+const CONFIG = {
+  W: 1080, H: 1920, DURATION: 24,
+  PAPER: { w: 1200, h: 4600, grid: 40, major: 200 },
+  FONT: '700 {S}px Gaegu, "Nanum Pen Script", "Malgun Gothic", cursive',
+  CHARS_PER_SEC: 10,
+
+  COLORS: {
+    paper: '#ECE6DA', gridLine: '#4FA39B', backdrop: '#CDBFA6', edge: '#5B4A3C',
+    ink: '#2E2622', furLight: '#F1E3C8', furShade: '#DCC9A8', mask: '#9A8470', maskDark: '#5B4A3C',
+    eye: '#4F8FC9', nose: '#D98B7B', mouth: '#E59A9A',
+    wood: '#D9A864', holeRim: '#B07E3F', rope: '#C9A878',
+    snack: '#E0A15B', bowl: '#8FB7C9', leaf: '#8DB56A',
+    skin: '#F5D5B8', hair: '#5A3620', dress: '#E8A2A2', shoe: '#FFFFFF',
+    check: '#B2432F', highlight: '#FFF04D', white: '#FFFFFF'
+  },
+
+  /* ★ 제로의 특징 무늬(코 오른쪽 옆 점). 코 중심 기준 좌표(머리 크기 기준 px).
+       dx: 오른쪽(+) / 왼쪽(−), dy: 아래(+) / 위(−), r: 반지름. 사진과 다르면 여기만 고치세요. */
+  MARK: { dx: 17, dy: 1, r: 4.8 },
+
+  JERO: { S: 1.15 },
+
+  /* 글자: x,y = 종이 위 가운데 좌표, size = 글자 크기, t = 쓰기 시작 시각(초) */
+  TITLE:  { str: '귀여운 고양이 제로', x: 540, y: 335, size: 106, t: 0.0 },
+  SUB:    { str: '우리집 고양이의 하루', x: 540, y: 508, size: 58, t: 0.9 },
+  LABELS: [
+    { n: 1, str: '캣타워에서 놀기', x: 430, y: 1375, size: 70, t: 3.0 },
+    { n: 2, str: '맛있는 간식',     x: 760, y: 2235, size: 74, t: 7.0 },
+    { n: 3, str: '놀아 주세요!',    x: 450, y: 3122, size: 74, t: 11.0 },
+    { n: 4, str: '같이 뛰어 놀기',  x: 812, y: 3912, size: 66, t: 15.0 }
+  ],
+  END:  { str: '제로',        x: 620, y: 4340, size: 110, t: 21.5 },
+  SIGN: { str: '우리집 고양이', x: 620, y: 4418, size: 34,  t: 22.2 },
+
+  /* 카메라: t = 도착 시각, x,y = 바라보는 종이 좌표, z = 확대,
+     m = 이동 방식 → slow(부드럽게) / whoosh(휙, 짧고 빠르게 + 모션 블러) / accel(가속) / snap(확 줌인) */
+  CAMERA: [
+    { t: 0.0,  x: 520, y: 380,  z: 1.42, m: 'slow' },
+    { t: 1.9,  x: 545, y: 470,  z: 1.26, m: 'slow' },
+    { t: 2.6,  x: 445, y: 1060, z: 1.16, m: 'whoosh' },
+    { t: 6.4,  x: 450, y: 1070, z: 1.24, m: 'slow' },
+    { t: 6.9,  x: 640, y: 1890, z: 1.20, m: 'accel' },
+    { t: 10.2, x: 650, y: 1930, z: 1.31, m: 'slow' },
+    { t: 10.7, x: 450, y: 2790, z: 1.15, m: 'whoosh' },
+    { t: 14.2, x: 445, y: 2805, z: 1.23, m: 'slow' },
+    { t: 14.6, x: 620, y: 3790, z: 1.06, m: 'whoosh' },
+    { t: 20.0, x: 622, y: 3800, z: 1.13, m: 'slow' },
+    { t: 20.4, x: 620, y: 2240, z: 0.43, m: 'accel' },
+    { t: 21.2, x: 620, y: 2230, z: 0.45, m: 'slow' },
+    { t: 21.5, x: 620, y: 4000, z: 1.07, m: 'snap' },
+    { t: 24.0, x: 620, y: 4010, z: 1.12, m: 'slow' }
+  ],
+  WHOOSH_SEC: 0.45, SNAP_SEC: 0.22,
+
+  /* 뒤 낙서 층: 위치 82%, 확대 72% */
+  DOODLE: { pos: 0.82, zoom: 0.72, tile: 760 },
+
+  /* 장면 시간표 (초) */
+  T: {
+    fall: 0.9, land: 1.5,
+    walk1: [2.0, 3.4],
+    tower: { base: [2.6, 2.85], trunk: [2.8, 3.3], rope: [3.1, 3.6], shelfA: [3.4, 3.6], shelfB: [3.55, 3.75], shelfC: [3.7, 3.9], holes: [3.8, 4.0] },
+    hopA: [4.0, 4.45], pokeA: [4.6, 5.0], hopB: [5.2, 5.65], pokeB: [5.7, 5.95], hopC: [6.0, 6.4], hopDown: [6.75, 7.15],
+    walk2: [7.15, 8.4], bowl: [6.95, 7.45], plant: [7.1, 7.6], kibble: [7.4, 8.4], kibbleGone: [9.0, 9.7],
+    sniff: [8.4, 8.8], dive: [8.8, 9.0], chew: [9.0, 9.7], lick: [9.8, 10.2], squint: [10.1, 10.7], hearts: [8.9, 10.0],
+    walk3: [10.7, 12.2], standUp: [12.2, 12.6], bubbles: [12.4, 14.4], wave: [13.4, 14.4], sitDown: [14.0, 14.2],
+    walk4: [14.2, 15.2], girlIn: [14.6, 15.8], orbit: [15.8, 19.0], leap: [19.0, 19.55], hugHold: [19.55, 20.7],
+    hopOut: [20.7, 21.2], girlOut: [21.0, 22.4], overpaint: [20.4, 21.3], checks: [20.4, 21.3], endWag: [22.4, 23.2]
+  },
+  BLINK_TIMES: [1.95, 2.0, 6.0, 10.0, 14.0, 18.0, 22.0, 23.1],     // 4초에 한 번
+  EAR_PERKS: [1.5, 3.0, 4.45, 8.4, 12.2, 13.4, 14.6, 16.0, 19.0, 21.2],   // 소리 날 때 쫑긋
+  LAND_X: 760
+};
+
+/* =====================================================================
+   기본 도구
+   ===================================================================== */
+const C = CONFIG.COLORS, TT = CONFIG.T;
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, u) => a + (b - a) * u;
+const smooth = u => { u = clamp(u); return u * u * (3 - 2 * u); };
+const easeOutBack = (u, c1 = 1.7) => { u = clamp(u); const c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); };
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+function H(a, b, c) { let h = Math.imul(a | 0, 374761393) ^ Math.imul(b | 0, 668265263) ^ Math.imul(c | 0, 1274126177); h = Math.imul(h ^ (h >>> 13), 1103515245); h ^= h >>> 16; return (h >>> 0) / 4294967296; }
+const seedCache = new Map();
+function sid(s) { if (typeof s === 'number') return s; let v = seedCache.get(s); if (v === undefined) { v = 0; for (let i = 0; i < s.length; i++) v = (Math.imul(v, 31) + s.charCodeAt(i)) | 0; seedCache.set(s, v); } return v; }
+const G = { v: 0 };               // 지금 보여 줄 흔들림 벌(0,1,2)
+
+/* =====================================================================
+   연필 선 엔진
+   - 점마다 ±2px 흔들기, 같은 선 3벌을 1초 12번 번갈아
+   - 진한 선(굵기 4) 위에 절반 굵기 흐린(45%) 선 한 번 더
+   - p(0~1)만큼 한쪽 끝부터 그어짐
+   ===================================================================== */
+const WOB = 2;
+function dense(pts, step, closed) {
+  const out = [], n = pts.length, m = closed ? n : n - 1;
+  for (let i = 0; i < m; i++) {
+    const a = pts[i], b = pts[(i + 1) % n], L = Math.hypot(b[0] - a[0], b[1] - a[1]), k = Math.max(1, Math.ceil(L / step));
+    for (let j = 0; j < k; j++) out.push([a[0] + (b[0] - a[0]) * j / k, a[1] + (b[1] - a[1]) * j / k]);
+  }
+  out.push(closed ? pts[0].slice() : pts[n - 1].slice());
+  return out;
+}
+function wobble(d, seed, v, closed) {
+  const o = new Array(d.length);
+  for (let i = 0; i < d.length; i++) {
+    const ii = (closed && i === d.length - 1) ? 0 : i;
+    o[i] = [d[i][0] + (H(seed, ii, v * 2) - .5) * 2 * WOB, d[i][1] + (H(seed, ii, v * 2 + 1) - .5) * 2 * WOB];
+  }
+  return o;
+}
+function strokePath(ctx, a, p, w, color, alpha) {
+  if (p <= 0 || a.length < 2) return;
+  ctx.globalAlpha = alpha; ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(a[0][0], a[0][1]);
+  if (p >= 1) { for (let i = 1; i < a.length; i++) ctx.lineTo(a[i][0], a[i][1]); }
+  else {
+    let tot = 0; const sg = [0];
+    for (let i = 1; i < a.length; i++) { const s = Math.hypot(a[i][0] - a[i - 1][0], a[i][1] - a[i - 1][1]); sg.push(s); tot += s; }
+    const lim = tot * p; let acc = 0;
+    for (let i = 1; i < a.length; i++) {
+      if (acc + sg[i] <= lim) { ctx.lineTo(a[i][0], a[i][1]); acc += sg[i]; }
+      else { const f = sg[i] ? (lim - acc) / sg[i] : 0; ctx.lineTo(a[i - 1][0] + (a[i][0] - a[i - 1][0]) * f, a[i - 1][1] + (a[i][1] - a[i - 1][1]) * f); break; }
+    }
+  }
+  ctx.stroke();
+}
+/* o: {seed, closed, p, w, color, a, fill, fa, line(false=선 없음), thin(false=흐린 선 없음), step} */
+function pencil(ctx, raw, o) {
+  o = o || {};
+  const closed = !!o.closed, p = o.p === undefined ? 1 : o.p;
+  if (p <= 0 || raw.length < 2) return;
+  const d = dense(raw, o.step || 12, closed), sd = sid(o.seed || 'x'), A = o.a === undefined ? 1 : o.a;
+  const a = wobble(d, sd, G.v, closed);
+  if (o.fill && closed && p > 0.5) {
+    ctx.globalAlpha = A * (o.fa === undefined ? 1 : o.fa) * Math.min(1, (p - 0.5) * 4);
+    ctx.fillStyle = o.fill; ctx.beginPath(); ctx.moveTo(a[0][0], a[0][1]);
+    for (let i = 1; i < a.length; i++) ctx.lineTo(a[i][0], a[i][1]);
+    ctx.closePath(); ctx.fill();
+  }
+  if (o.line === false) { ctx.globalAlpha = 1; return; }
+  const w = o.w || 4, col = o.color || C.ink;
+  strokePath(ctx, a, p, w, col, A);
+  if (o.thin !== false) strokePath(ctx, wobble(d, sd, (G.v + 1) % 3, closed), p, w / 2, col, A * 0.45);
+  ctx.globalAlpha = 1;
+}
+/* 모양 만들기 */
+function ellipsePts(cx, cy, rx, ry, n = 24, rot = 0, a0 = 0, a1 = Math.PI * 2) {
+  const out = [], cr = Math.cos(rot), sr = Math.sin(rot), full = Math.abs(a1 - a0 - Math.PI * 2) < 1e-6, m = full ? n : n + 1;
+  for (let i = 0; i < m; i++) { const a = a0 + (a1 - a0) * i / n, x = Math.cos(a) * rx, y = Math.sin(a) * ry; out.push([cx + x * cr - y * sr, cy + x * sr + y * cr]); }
+  return out;
+}
+function capsule(a, b, r, n = 7) {
+  const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), out = [];
+  for (let i = 0; i <= n; i++) { const t = ang - Math.PI / 2 + Math.PI * i / n; out.push([b[0] + Math.cos(t) * r, b[1] + Math.sin(t) * r]); }
+  for (let i = 0; i <= n; i++) { const t = ang + Math.PI / 2 + Math.PI * i / n; out.push([a[0] + Math.cos(t) * r, a[1] + Math.sin(t) * r]); }
+  return out;
+}
+function limb(a, b, r0, r1, n = 6) {   // 굵기가 변하는 다리
+  const ang = Math.atan2(b[1] - a[1], b[0] - a[0]), out = [];
+  for (let i = 0; i <= n; i++) { const t = ang - Math.PI / 2 + Math.PI * i / n; out.push([b[0] + Math.cos(t) * r1, b[1] + Math.sin(t) * r1]); }
+  for (let i = 0; i <= n; i++) { const t = ang + Math.PI / 2 + Math.PI * i / n; out.push([a[0] + Math.cos(t) * r0, a[1] + Math.sin(t) * r0]); }
+  return out;
+}
+/* 털 가장자리: 닫힌 도형 둘레에 짧은 삐죽 선 */
+function furify(poly, lenFn, seed, space = 15) {
+  const d = dense(poly, space, true); d.pop();
+  let cx = 0, cy = 0; for (const p of d) { cx += p[0]; cy += p[1]; } cx /= d.length; cy /= d.length;
+  const out = [];
+  for (let i = 0; i < d.length; i++) {
+    const p = d[i];
+    if (i % 2 === 1) {
+      const dx = p[0] - cx, dy = p[1] - cy, L = Math.hypot(dx, dy) || 1, ln = lenFn(p, i) * (0.65 + 0.7 * H(seed, i, 5));
+      out.push([p[0] + dx / L * ln, p[1] + dy / L * ln]);
+    } else out.push(p);
+  }
+  return out;
+}
+/* 부드러운 경로(Catmull-Rom) + 길이표 */
+function smoothPath(ctrl, per = 14) {
+  const pts = [], n = ctrl.length;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(n - 1, i + 2)];
+    for (let j = 0; j < per; j++) {
+      const t = j / per, t2 = t * t, t3 = t2 * t;
+      pts.push([0, 1].map(k => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+    }
+  }
+  pts.push(ctrl[n - 1].slice());
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, total: cum[cum.length - 1] };
+}
+function posAt(sp, u) {
+  u = clamp(u); const L = u * sp.total; let i = 1;
+  while (i < sp.cum.length - 1 && sp.cum[i] < L) i++;
+  const s = sp.cum[i] - sp.cum[i - 1] || 1, f = (L - sp.cum[i - 1]) / s, a = sp.pts[i - 1], b = sp.pts[i];
+  return { x: a[0] + (b[0] - a[0]) * f, y: a[1] + (b[1] - a[1]) * f };
+}
+function dirAt(sp, u) { const a = posAt(sp, u - 0.05), b = posAt(sp, u + 0.05); return (b.x - a.x) >= 0 ? 1 : -1; }
+function subPath(sp, p) { // 처음 p만큼
+  const L = clamp(p) * sp.total, out = [sp.pts[0]];
+  for (let i = 1; i < sp.pts.length; i++) { if (sp.cum[i] <= L) out.push(sp.pts[i]); else { const f = (L - sp.cum[i - 1]) / (sp.cum[i] - sp.cum[i - 1]); out.push([lerp(sp.pts[i - 1][0], sp.pts[i][0], f), lerp(sp.pts[i - 1][1], sp.pts[i][1], f)]); break; } }
+  return out;
+}
+
+/* =====================================================================
+   카메라
+   ===================================================================== */
+const whooshEase = u => easeOutBack(u, 0.9);
+function camRaw(t) {
+  const K = CONFIG.CAMERA;
+  if (t <= K[0].t) return { x: K[0].x, y: K[0].y, z: K[0].z, whoosh: false };
+  let i = 0; while (i < K.length - 2 && t >= K[i + 1].t) i++;
+  const a = K[i], b = K[i + 1], span = b.t - a.t; let u = 0, whoosh = false;
+  if (t >= b.t) u = 1;
+  else if (b.m === 'slow') u = smooth((t - a.t) / span);
+  else if (b.m === 'accel') u = Math.pow((t - a.t) / span, 3);
+  else if (b.m === 'whoosh') { const d = Math.min(span, CONFIG.WHOOSH_SEC), s = b.t - d; if (t >= s) { u = whooshEase((t - s) / d); whoosh = true; } }
+  else if (b.m === 'snap') { const d = Math.min(span, CONFIG.SNAP_SEC), s = b.t - d; if (t >= s) { const x = (t - s) / d; u = 1 - Math.pow(1 - x, 5); } }
+  return { x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), z: lerp(a.z, b.z, u), whoosh };
+}
+function camAt(t) {
+  const c = camRaw(t);
+  if (c.whoosh) {
+    const c2 = camRaw(t - 0.02), sp = Math.hypot((c.x - c2.x) * c.z, (c.y - c2.y) * c.z, (c.z - c2.z) * 600) / 0.02;
+    c.speed = sp;
+  } else c.speed = 0;
+  return c;
+}
+
+/* =====================================================================
+   종이 · 낙서 층
+   ===================================================================== */
+const tileC = document.createElement('canvas'); tileC.width = tileC.height = 760;
+function buildDoodleTile() {
+  const g = tileC.getContext('2d'); g.clearRect(0, 0, 760, 760); const v0 = G.v; G.v = 0;
+  const col = C.mask, opt = (s, extra) => Object.assign({ seed: s, w: 3, color: col, a: 0.9, thin: true }, extra || {});
+  function paw(x, y, s, k) {
+    pencil(g, ellipsePts(x, y + 8 * s, 15 * s, 11 * s, 14), opt('dp' + k, { closed: true }));
+    [[-17, -8], [-6, -19], [6, -19], [17, -8]].forEach((q, i) => pencil(g, ellipsePts(x + q[0] * s, y + q[1] * s, 6 * s, 7.5 * s, 10), opt('dt' + k + i, { closed: true })));
+  }
+  function heart(x, y, s, k) { const pts = []; for (let i = 0; i < 28; i++) { const a = i / 28 * Math.PI * 2; pts.push([x + 16 * Math.pow(Math.sin(a), 3) * s, y - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * s]); } pencil(g, pts, opt('dh' + k, { closed: true })); }
+  function fish(x, y, s, k) { pencil(g, ellipsePts(x, y, 38 * s, 17 * s, 20), opt('df' + k, { closed: true })); pencil(g, [[x + 36 * s, y], [x + 62 * s, y - 18 * s], [x + 62 * s, y + 18 * s], [x + 36 * s, y]], opt('dft' + k, { closed: true })); pencil(g, ellipsePts(x - 22 * s, y - 4 * s, 3 * s, 3 * s, 8), opt('dfe' + k, { closed: true })); }
+  function yarn(x, y, s, k) { pencil(g, ellipsePts(x, y, 30 * s, 30 * s, 22), opt('dy' + k, { closed: true })); pencil(g, ellipsePts(x, y, 24 * s, 16 * s, 14, 0.6, 0.3, 2.6), opt('dy1' + k)); pencil(g, ellipsePts(x, y, 20 * s, 26 * s, 14, -0.5, 3.4, 5.6), opt('dy2' + k)); pencil(g, [[x + 24 * s, y + 22 * s], [x + 60 * s, y + 40 * s], [x + 90 * s, y + 30 * s]], opt('dy3' + k)); }
+  paw(90, 100, 1.5, 1); heart(300, 80, 1.8, 2); fish(520, 150, 1.4, 3); yarn(130, 350, 1.3, 4);
+  paw(380, 330, 1.3, 5); heart(610, 380, 1.5, 6); fish(120, 600, 1.2, 7); yarn(430, 590, 1.1, 8); paw(640, 620, 1.6, 9); heart(260, 700, 1.2, 10);
+  G.v = v0;
+}
+function drawBackdrop(ctx, cam) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.fillStyle = C.backdrop; ctx.fillRect(0, 0, CONFIG.W, CONFIG.H);
+  drawDoodles(ctx, cam, 0.5);
+}
+function drawDoodles(ctx, cam, alpha) {
+  const D = CONFIG.DOODLE, z = cam.z * D.zoom, cx = cam.x * D.pos, cy = cam.y * D.pos, ts = D.tile;
+  const x0 = cx - 540 / z, x1 = cx + 540 / z, y0 = cy - 960 / z, y1 = cy + 960 / z;
+  ctx.save(); ctx.setTransform(z, 0, 0, z, 540 - cx * z, 960 - cy * z); ctx.globalAlpha = alpha;
+  for (let i = Math.floor(x0 / ts); i <= Math.floor(x1 / ts); i++) for (let j = Math.floor(y0 / ts); j <= Math.floor(y1 / ts); j++) ctx.drawImage(tileC, i * ts, j * ts, ts, ts);
+  ctx.restore();
+}
+function drawPaper(ctx, cam) {
+  const P = CONFIG.PAPER;
+  ctx.setTransform(cam.z, 0, 0, cam.z, 540 - cam.x * cam.z, 960 - cam.y * cam.z);
+  ctx.globalAlpha = 0.10; ctx.fillStyle = C.edge; ctx.fillRect(10, 14, P.w, P.h); ctx.globalAlpha = 0.12; ctx.fillRect(5, 7, P.w, P.h); ctx.globalAlpha = 1;
+  ctx.fillStyle = C.paper; ctx.fillRect(0, 0, P.w, P.h);
+  // 낙서가 종이에 살짝 비침
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, P.w, P.h); ctx.clip(); ctx.setTransform(1, 0, 0, 1, 0, 0); drawDoodles(ctx, cam, 0.16); ctx.restore();
+  ctx.setTransform(cam.z, 0, 0, cam.z, 540 - cam.x * cam.z, 960 - cam.y * cam.z);
+  const vx0 = Math.max(0, cam.x - 540 / cam.z), vx1 = Math.min(P.w, cam.x + 540 / cam.z), vy0 = Math.max(0, cam.y - 960 / cam.z), vy1 = Math.min(P.h, cam.y + 960 / cam.z);
+  ctx.strokeStyle = C.gridLine; ctx.lineCap = 'butt';
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.globalAlpha = pass ? 0.26 : 0.12; ctx.lineWidth = (pass ? 2.2 : 1.4) / Math.max(cam.z, 0.7); ctx.beginPath();
+    for (let x = Math.ceil(vx0 / P.grid) * P.grid; x <= vx1; x += P.grid) if ((x % P.major === 0) === !!pass) { ctx.moveTo(x, vy0); ctx.lineTo(x, vy1); }
+    for (let y = Math.ceil(vy0 / P.grid) * P.grid; y <= vy1; y += P.grid) if ((y % P.major === 0) === !!pass) { ctx.moveTo(vx0, y); ctx.lineTo(vx1, y); }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
+function drawVignette(ctx) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const g = ctx.createRadialGradient(540, 960, 520, 540, 960, 1150);
+  g.addColorStop(0, 'rgba(91,74,60,0)'); g.addColorStop(1, 'rgba(91,74,60,0.42)');
+  ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(0, 0, CONFIG.W, CONFIG.H);
+}
+
+/* =====================================================================
+   글자 · 단계 라벨
+   ===================================================================== */
+const fontStr = s => CONFIG.FONT.replace('{S}', s);
+function drawText(ctx, str, cx, cy, size, t0, t, leftX) {
+  ctx.font = fontStr(size); ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const wFull = ctx.measureText(str).width, left = leftX !== undefined ? leftX : cx - wFull / 2;
+  const n = Math.min(str.length, Math.floor((t - t0) * CONFIG.CHARS_PER_SEC));
+  if (n > 0) {
+    const jx = (H(7, G.v, 1) - .5) * 1.6, jy = (H(7, G.v, 2) - .5) * 1.6;
+    ctx.fillStyle = C.ink; ctx.globalAlpha = 0.95; ctx.fillText(str.slice(0, n), left + jx, cy + jy);
+    ctx.globalAlpha = 0.35; ctx.fillText(str.slice(0, n), left - jx * 0.7 + 0.8, cy - jy * 0.7);
+    ctx.globalAlpha = 1;
+  }
+  return { left, w: wFull, tDone: t0 + str.length / CONFIG.CHARS_PER_SEC, done: n >= str.length };
+}
+function highlight(ctx, x0, x1, y, th, p, seed) {
+  if (p <= 0) return;
+  ctx.save(); ctx.globalCompositeOperation = 'multiply';
+  const pts = []; const n = 6; for (let i = 0; i <= n; i++) pts.push([lerp(x0, x1, i / n), y + (H(sid(seed), i, 1) - .5) * 5]);
+  pencil(ctx, pts, { seed, p, w: th, color: C.highlight, a: 0.8, thin: false, step: 20 });
+  ctx.restore();
+}
+function labelGeom(ctx, L) {
+  ctx.font = fontStr(L.size); const tw = ctx.measureText(L.str).width, d = L.size * 0.95, gap = L.size * 0.22;
+  const left = L.x - (d + gap + tw) / 2;
+  return { left, d, gap, tw, textLeft: left + d + gap, right: left + d + gap + tw };
+}
+function drawLabels(ctx, t) {
+  // 제목 / 부제
+  const T = CONFIG.TITLE, S = CONFIG.SUB;
+  const a = drawText(ctx, T.str, T.x, T.y, T.size, T.t, t);
+  if (a.done) highlight(ctx, a.left - 6, a.left + a.w + 6, T.y + T.size * 0.42, T.size * 0.2, seg(t, a.tDone + 0.05, a.tDone + 0.45), 'ul_title');
+  const b = drawText(ctx, S.str, S.x, S.y, S.size, S.t, t);
+  if (b.done) highlight(ctx, b.left - 4, b.left + b.w + 4, S.y + S.size * 0.42, S.size * 0.22, seg(t, b.tDone + 0.05, b.tDone + 0.45), 'ul_sub');
+  // 단계 라벨
+  CONFIG.LABELS.forEach((L, i) => {
+    if (t < L.t) return;
+    const g = labelGeom(ctx, L), cp = seg(t, L.t, L.t + 0.3);
+    pencil(ctx, ellipsePts(g.left + g.d / 2, L.y + 2, g.d / 2, g.d / 2, 20, 0.4), { seed: 'lc' + i, closed: true, p: cp, w: 4.5 });
+    if (cp > 0.8) { ctx.font = fontStr(L.size * 0.66); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = C.ink; ctx.fillText(String(L.n), g.left + g.d / 2, L.y + 4); ctx.textAlign = 'left'; }
+    const r = drawText(ctx, L.str, L.x, L.y, L.size, L.t, t, g.textLeft);
+    if (r.done) highlight(ctx, g.textLeft - 4, g.right + 6, L.y + L.size * 0.4, L.size * 0.24, seg(t, r.tDone + 0.05, r.tDone + 0.5), 'ul' + i);
+  });
+  const E = CONFIG.END, Sg = CONFIG.SIGN;
+  if (t >= E.t) drawText(ctx, E.str, E.x, E.y, E.size, E.t, t);
+  if (t >= Sg.t) drawText(ctx, Sg.str, Sg.x, Sg.y, Sg.size, Sg.t, t);
+}
+function drawChecks(ctx, t) {
+  CONFIG.LABELS.forEach((L, i) => {
+    const t0 = TT.checks[0] + i * 0.2; if (t < t0) return;
+    const g = labelGeom(ctx, L), s = L.size * 0.5, cx = g.right + s * 1.4, cy = L.y;
+    pencil(ctx, [[cx - s * 0.5, cy + s * 0.05], [cx - s * 0.12, cy + s * 0.45], [cx + s * 0.6, cy - s * 0.5]], { seed: 'ck' + i, p: seg(t, t0, t0 + 0.28), w: 8, color: C.check });
+  });
+}
+
+/* =====================================================================
+   경로선 / 소품 (캣타워, 그릇, 식물)
+   ===================================================================== */
+const PATHS = [
+  smoothPath([[760, 395], [690, 560], [520, 700], [580, 860], [470, 1020], [400, 1285]]),
+  smoothPath([[500, 1292], [430, 1450], [560, 1600], [480, 1760], [545, 1935]]),
+  smoothPath([[545, 1938], [610, 2200], [480, 2450], [560, 2700], [450, 2990]]),
+  smoothPath([[450, 2995], [380, 3250], [520, 3480], [430, 3680], [410, 3860]])
+];
+const PATH_TIMES = [TT.walk1, TT.walk2, TT.walk3, TT.walk4];
+function drawPaths(ctx, t) {
+  PATHS.forEach((sp, i) => {
+    const p = Math.min(1, seg(t, PATH_TIMES[i][0], PATH_TIMES[i][1]) + 0.08) * (t > PATH_TIMES[i][0] ? 1 : 0);
+    if (p > 0) pencil(ctx, subPath(sp, p), { seed: 'path' + i, w: 3.2, color: C.maskDark, a: 0.75, step: 14 });
+  });
+  const op = seg(t, TT.overpaint[0], TT.overpaint[1]);
+  if (op > 0) {
+    const all = []; PATHS.forEach(sp => sp.pts.forEach(q => all.push(q)));
+    const tot = PATHS.reduce((a, s) => a + s.total, 0), lim = tot * op; let acc = 0; const out = [];
+    for (const sp of PATHS) { if (acc + sp.total <= lim) { out.push(sp.pts); acc += sp.total; } else { out.push(subPath(sp, (lim - acc) / sp.total)); break; } }
+    out.forEach((pts, i) => pencil(ctx, pts, { seed: 'over' + i, w: 9, color: C.holeRim, a: 0.7, step: 14 }));
+  }
+}
+const HOLES = [[450, 1215], [450, 1105], [450, 975]];
+const SPOT = { base: [400, 1285], A: [345, 1165], B: [580, 1005], C: [470, 878], base2: [500, 1288] };
+function rect(x0, y0, x1, y1) { return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]; }
+function drawTower(ctx, t) {
+  const K = TT.tower, W = (r) => seg(t, r[0], r[1]);
+  const part = (poly, p, seed, fill) => { if (p > 0) pencil(ctx, poly, { seed, closed: true, p, fill, w: 4 }); };
+  part(rect(190, 1285, 710, 1317), W(K.base), 'tw_base', C.wood);
+  part(rect(585, 1005, 635, 1285), W(K.rope), 'tw_rope', C.rope);
+  const rp = W([K.rope[0] + 0.25, K.rope[1] + 0.1]);
+  for (let y = 1275; y > 1030; y -= 17) if (rp > 0 && (1285 - y) / 255 < rp) pencil(ctx, [[587, y], [633, y - 12]], { seed: 'rope' + y, w: 3, color: C.mask });
+  part(rect(405, 880, 495, 1285), W(K.trunk), 'tw_trunk', C.wood);
+  part(rect(250, 1165, 405, 1187), W(K.shelfA), 'tw_A', C.wood);
+  part(rect(495, 1005, 728, 1029), W(K.shelfB), 'tw_B', C.wood);
+  part(rect(335, 880, 565, 904), W(K.shelfC), 'tw_C', C.wood);
+  const hp = W(K.holes);
+  if (hp > 0) HOLES.forEach((h, i) => {
+    const pad = ellipsePts(h[0], h[1] + 7, 16, 11, 14);
+    pencil(ctx, pad, { seed: 'hp' + i, closed: true, p: hp, fill: C.maskDark, color: C.holeRim, w: 5 });
+    [[-19, -8], [-7, -20], [7, -20], [19, -8]].forEach((q, k) => pencil(ctx, ellipsePts(h[0] + q[0], h[1] + q[1], 6.5, 8, 10), { seed: 'ht' + i + k, closed: true, p: hp, fill: C.maskDark, color: C.holeRim, w: 4.5 }));
+  });
+}
+const BOWL = { cx: 700, cy: 1925, rx: 120, ry: 24 };
+function bowlPolys() {
+  const { cx, cy, rx, ry } = BOWL;
+  const body = [...ellipsePts(cx, cy, rx, ry, 18, 0, 0, Math.PI), [cx - rx + 38, cy + 76], [cx + rx - 38, cy + 76]];
+  return { rim: ellipsePts(cx, cy, rx, ry, 28), body };
+}
+const KIB = Array.from({ length: 14 }, (_, i) => { const x = 700 + (H(11, i, 1) - .5) * 150; return { x, y: 1952 - 34 * (1 - Math.pow((x - 700) / 95, 2)) - (i % 3) * 3, ts: 7.4 + i * 0.07, gone: 9.0 + i * 0.05 }; });
+function drawBowlBack(ctx, t) {
+  const p = seg(t, TT.bowl[0], TT.bowl[1]); if (p <= 0) return;
+  const B = bowlPolys();
+  pencil(ctx, B.rim, { seed: 'bowl_rim', closed: true, p, fill: C.bowl, w: 4.5 });
+  KIB.forEach((k, i) => {
+    if (t < k.ts || t > k.gone) return;
+    const u = clamp((t - k.ts) / 0.38), y = lerp(1925 - 430, k.y, u * u), bounce = u >= 1 ? 0 : 0;
+    pencil(ctx, ellipsePts(k.x, y + bounce, 9, 7, 9, i), { seed: 'kib' + i, closed: true, fill: C.snack, w: 3, step: 8 });
+  });
+}
+function drawBowlFront(ctx, t) {
+  const p = seg(t, TT.bowl[0], TT.bowl[1]); if (p <= 0) return;
+  const B = bowlPolys(); pencil(ctx, B.body, { seed: 'bowl_body', closed: true, p, fill: C.bowl, w: 4.5 });
+}
+function drawPlant(ctx, t) {
+  const p = seg(t, TT.plant[0], TT.plant[1]); if (p <= 0) return;
+  const bx = 905, by = 1905;
+  [[-46, -92, -24], [-18, -118, -6], [18, -118, 8], [46, -92, 22], [0, -140, 0]].forEach((l, i) => {
+    const tip = [bx + l[0] * 1.1, by + l[1]], mid = [bx + l[0] * 0.45 + (i % 2 ? 14 : -14), by + l[1] * 0.55];
+    pencil(ctx, [[bx, by], [mid[0] - 16, mid[1]], tip, [mid[0] + 16, mid[1] + 6]], { seed: 'leaf' + i, closed: true, p, fill: C.leaf, w: 3.5 });
+  });
+  pencil(ctx, [[bx - 45, by], [bx + 45, by], [bx + 36, by + 82], [bx - 36, by + 82]], { seed: 'pot', closed: true, p, fill: C.rope, w: 4 });
+}
+
+/* =====================================================================
+   제로 (머리·몸·앞다리·뒷다리·꼬리·귀를 한 번만 정의하고 포즈만 바꿔 조합)
+   ===================================================================== */
+function blinkOpen(t) { let o = 1; for (const b of CONFIG.BLINK_TIMES) { const d = Math.abs(t - b); if (d < 0.1) o = Math.min(o, d / 0.1); } return o; }
+function earPerk(t) { let m = 0; for (const e of CONFIG.EAR_PERKS) { const d = t - e; if (d >= 0 && d < 0.6) m = Math.max(m, d < 0.08 ? d / 0.08 : 1 - (d - 0.08) / 0.52); } return m; }
+function newJ() { return { vis: true, fx: 0, fy: 0, gy: null, S: CONFIG.JERO.S, hs: 1, mode: 'front', dir: 1, sq: 0, walk: 0, ph: 0, air: 0, reach: 0, reachTo: [100, -60], headDown: 0, tailUp: 0, wag: 1, up: 0, armL: [0, 0], armR: [0, 0], eyes: 'open', look: [0, 0], mouth: 'closed', nose: 0, chew: 0, lick: 0, perk: 0, hug: 0, rotate: 0, shadow: 1 }; }
+
+function tailPoly(bx, by, a0, a1, L, sway, wid, n = 9) {
+  const left = [], right = []; let x = bx, y = by;
+  for (let i = 0; i <= n; i++) {
+    const u = i / n, ang = (lerp(a0, a1, u) + sway(u)) * Math.PI / 180, w = wid * (1 - 0.3 * u) * (1 + 0.25 * Math.sin(Math.PI * u));
+    const nx = -Math.sin(ang), ny = -Math.cos(ang);   // y 위쪽 기준 법선(화면 y는 아래)
+    left.push([x + nx * w, y + ny * w]); right.push([x - nx * w, y - ny * w]);
+    x += Math.cos(ang) * L / n; y -= Math.sin(ang) * L / n;
+  }
+  const tip = [x, y];
+  return [...left, tip, ...right.reverse()];
+}
+function drawJero(ctx, J, t) {
+  if (!J.vis) return;
+  const S = J.S * J.hs, sx = S * (1 + J.sq * 0.55), sy = S * (1 - J.sq), dir = J.mode === 'side' ? J.dir : 1;
+  const cr = Math.cos(J.rotate * dir), sr = Math.sin(J.rotate * dir);
+  const T = (x, y) => { const X = x * sx * dir, Y = y * sy; return [J.fx + X * cr - Y * sr, J.fy + X * sr + Y * cr]; };
+  const TP = arr => arr.map(p => T(p[0], p[1]));
+  const fur = C.furLight, shade = C.furShade;
+  const wagPh = t * 5.5, wagAmp = 13 * J.wag;
+  const sway = u => wagAmp * Math.sin(wagPh - u * 2.4) * u;
+  const part = (poly, id, fill, o) => pencil(ctx, TP(poly), Object.assign({ seed: id, closed: true, fill, w: 4 }, o || {}));
+  const furN = (len) => (p, i) => len;
+
+  // 그림자
+  if (J.shadow > 0) { const gy = J.gy === null ? J.fy : J.gy; pencil(ctx, ellipsePts(J.fx, gy + 3, 78 * S, 12 * S, 16), { seed: 'jshadow', closed: true, fill: C.furShade, fa: 0.55 * J.shadow, line: false }); }
+
+  let headPos, headRot = 0;
+  if (J.mode === 'side') {
+    const ph = J.ph, wk = J.walk, air = J.air;
+    const footH = (k, lift) => { const s = Math.sin(ph + k), c = Math.cos(ph + k); return [(k ? -48 : -52) + 26 * s * wk, -9 - 16 * Math.max(0, c) * wk * lift]; };
+    const hindFoot = k => { const f = footH(k, 1); return [lerp(f[0], -104 - k * 6, air), lerp(f[1], -78 - k * 8, air)]; };
+    const frontFoot = k => { const f = footH(k + Math.PI, 1); let p = [lerp(f[0] + 106, 112, air), lerp(f[1], -100, air)]; return p; };
+    const ff0 = frontFoot(0), ff1 = frontFoot(0.9);
+    let nearF = ff0.slice(); if (J.reach > 0) nearF = [lerp(nearF[0], J.reachTo[0], J.reach), lerp(nearF[1], J.reachTo[1], J.reach)];
+    // 꼬리(뒤)
+    const tail = tailPoly(-72, -98, lerp(158, 98, J.tailUp), lerp(110, 88, J.tailUp), 108, sway, 17);
+    pencil(ctx, TP(furify(tail, () => 8, 21, 14)), { seed: 'j_tail', closed: true, fill: fur, w: 4 });
+    // 먼 쪽 다리
+    part(limb([-34, -72], [hindFoot(1)[0] + 14, hindFoot(1)[1]], 20, 10), 'j_hindfar', shade); part(ellipsePts(hindFoot(1)[0] + 20, hindFoot(1)[1] + 2, 15, 8, 10), 'j_hpawfar', shade);
+    part(limb([66, -76], [ff1[0] - 6, ff1[1]], 15, 9), 'j_frontfar', shade); part(ellipsePts(ff1[0] + 2, ff1[1] + 2, 14, 8, 10), 'j_fpawfar', shade);
+    // 몸통
+    const body = furify(ellipsePts(0, -88, 80, 50, 28), () => 10, 3, 17);
+    part(body, 'j_body', fur);
+    part(ellipsePts(0, -88, 76, 46, 16, 0, 0.35, Math.PI - 0.35), 'j_belly', shade, { line: false, fa: 0.7 });
+    // 가까운 다리
+    part(limb([-46, -70], hindFoot(0), 24, 11), 'j_hindnear', fur);
+    part(ellipsePts(hindFoot(0)[0] + 8, hindFoot(0)[1] + 2, 16, 8.5, 10), 'j_hpaw', fur);
+    part(limb([54, -78], nearF, 16, 9.5), 'j_frontnear', fur);
+    part(ellipsePts(nearF[0] + 3, nearF[1] + 2, 14.5, 8.5, 10), 'j_fpaw', fur);
+    // 머리 위치
+    const hd = J.headDown, hl = [lerp(88, 134, hd), lerp(-122, -52, hd)];
+    headPos = T(hl[0], hl[1]); headRot = dir * (0.55 * hd) + J.rotate * dir * 0.4;
+  } else { // front
+    const up = J.up, ry = 76 * (1 + 0.12 * up), rx = 58 * (1 - 0.1 * up), cy = -ry + 4;
+    const tail = tailPoly(46, -16, lerp(12, 20, up), lerp(72, 40, up), 118, sway, 17);
+    pencil(ctx, TP(furify(tail, () => 8, 22, 14)), { seed: 'j_tail', closed: true, fill: fur, w: 4 });
+    // 뒷발
+    part(ellipsePts(-36, -9, 27, 14, 14), 'j_hindL', fur); part(ellipsePts(36, -9, 27, 14, 14), 'j_hindR', fur);
+    // 몸통(배 아래가 넓은 배 모양)
+    const pts = []; for (let i = 0; i < 30; i++) { const a = i / 30 * Math.PI * 2; pts.push([rx * Math.cos(a) * (1 + 0.16 * Math.sin(a)), cy + ry * Math.sin(a)]); }
+    part(furify(pts, () => 10, 4, 17), 'j_body', fur);
+    // 가슴 솜털
+    pencil(ctx, TP([[-18, cy - ry * 0.1], [-8, cy + 6], [0, cy - 8], [8, cy + 6], [18, cy - ry * 0.1]]), { seed: 'j_chest', w: 3, color: C.furShade });
+    // 앞다리
+    const arm = (sgn, adj) => {
+      const sh = [sgn * 32, cy - ry * 0.28], sit = [sgn * 33, -16], raised = [sgn * 16, cy - ry * 0.12], hug = [sgn * 44, cy - ry * 0.25];
+      const base = [lerp(sit[0], raised[0], up), lerp(sit[1], raised[1], up)];
+      let end = [lerp(base[0], hug[0], J.hug) + adj[0] * sgn, lerp(base[1], hug[1], J.hug) + adj[1]];
+      return [sh, end];
+    };
+    [[-1, J.armL, 'j_armL'], [1, J.armR, 'j_armR']].forEach(([sg, adj, id]) => { const [sh, end] = arm(sg, adj); part(limb(sh, end, 14, 10), id, fur); part(ellipsePts(end[0], end[1] + 2, 12, 9, 10), id + 'p', fur); });
+    headPos = T(0, cy - ry - 12); headRot = 0;
+  }
+
+  // ----- 머리 (항상 정면, 몸이 좌우로 돌아도 무늬 위치가 바뀌지 않음) -----
+  const hs = S, chew = J.chew ? Math.sin(t * 22) : 0, shx = 1 + 0.05 * chew, shy = 1 - 0.035 * chew;
+  const hc = Math.cos(headRot), hsn = Math.sin(headRot);
+  const Hh = (x, y) => { const X = x * shx * hs, Y = y * shy * hs; return [headPos[0] + X * hc - Y * hsn, headPos[1] + X * hsn + Y * hc]; };
+  const HP = arr => arr.map(p => Hh(p[0], p[1]));
+  const hpart = (poly, id, fill, o) => pencil(ctx, HP(poly), Object.assign({ seed: id, closed: true, fill, w: 4 }, o || {}));
+  const perk = J.perk;
+  // 귀
+  [-1, 1].forEach(sg => {
+    const tipY = -80 - 9 * perk, tipX = sg * (44 + 2 * perk);
+    hpart([[sg * 54, -14], [tipX, tipY], [sg * 10, -42]], 'j_ear' + sg, C.mask);
+    hpart([[sg * 44, -26], [sg * (41 + perk), tipY + 17], [sg * 22, -41]], 'j_earin' + sg, C.mouth, { line: false, fa: 0.85 });
+  });
+  // 얼굴 바탕 + 뺨 털
+  const hp = []; for (let i = 0; i < 34; i++) { const a = i / 34 * Math.PI * 2, s = Math.sin(a); hp.push([58 * Math.cos(a) * (1 + 0.13 * Math.max(0, s)), 3 + 48 * s]); }
+  hpart(furify(hp, (p) => (p[1] > 6 ? 12 : 3.5), 6, 14), 'j_head', fur);
+  // 가면 무늬
+  hpart([[0, -47], [-24, -43], [-45, -23], [-50, 2], [-36, 19], [-16, 17], [-6, 6], [0, 11], [6, 6], [16, 17], [36, 19], [50, 2], [45, -23], [24, -43]], 'j_mask', C.mask, { line: false, fa: 0.95 });
+  // 이마 줄무늬
+  [[0, -46, 0, -30], [-12, -45, -9, -32], [12, -45, 9, -32]].forEach((l, i) => pencil(ctx, HP([[l[0], l[1]], [l[2], l[3]]]), { seed: 'j_stripe' + i, w: 3.5, color: C.maskDark }));
+  // 주둥이
+  hpart(ellipsePts(0, 21, 27, 19, 16), 'j_muzzle', fur, { line: false });
+  // 눈
+  const blink = blinkOpen(t), E = J.eyes, look = J.look;
+  [-1, 1].forEach(sg => {
+    const ex = sg * 22, ey = -4;
+    const open = E === 'open' ? blink : E === 'wide' ? Math.min(1, blink * 1.1) : E === 'squint' ? 0.3 * (blink > 0.5 ? 1 : 0.3) : 0;
+    if (E === 'happy' || (open < 0.14)) {
+      const lift = E === 'happy' ? 10 : 0;
+      pencil(ctx, HP([[ex - 12, ey + 4], [ex - 5, ey - lift - 2], [ex + 5, ey - lift - 2], [ex + 12, ey + 4]]), { seed: 'j_eyec' + sg, w: 4.5 });
+    } else {
+      const k = E === 'wide' ? 1.14 : 1;
+      hpart(ellipsePts(ex, ey, 13.5 * k, 15.5 * k * open, 18), 'j_eye' + sg, C.eye, { w: 3.6 });
+      const px = ex + look[0] * 4, py = ey + look[1] * 5 * open;
+      hpart(ellipsePts(px, py, 7 * k, 8 * k * Math.max(open, 0.3), 12), 'j_pup' + sg, C.ink, { line: false });
+      hpart(ellipsePts(px + 3.2, py - 4.2, 3.1, 3.1 * Math.max(open, 0.5), 8), 'j_spk' + sg, C.white, { line: false });
+    }
+  });
+  // 코(분홍 작은 역삼각형) + 코 오른쪽 옆 특징 무늬
+  const ns = 1 + 0.28 * J.nose * Math.sin(t * 30), ny = 13 + 1.2 * J.nose * Math.sin(t * 30 + 1);
+  hpart([[-7.5 * ns, ny - 4], [7.5 * ns, ny - 4], [0, ny + 5.5 * ns]], 'j_nose', C.nose, { w: 3 });
+  const M = CONFIG.MARK;
+  hpart(ellipsePts(M.dx, ny + M.dy, M.r, M.r * 0.9, 10), 'j_mark', C.mask, { w: 2.2 });
+  // 입
+  const lickAmt = J.lick ? Math.sin(t * 16) : 0;
+  if (J.mouth === 'smile') {
+    hpart([[-14, ny + 10], [-6, ny + 24], [6, ny + 24], [14, ny + 10]], 'j_smile', C.mouth, { w: 3 });
+  } else {
+    pencil(ctx, HP([[0, ny + 5], [0, ny + 11]]), { seed: 'j_mv', w: 2.8 });
+    pencil(ctx, HP([[0, ny + 11], [-6, ny + 16], [-13, ny + 12]]), { seed: 'j_ml', w: 2.8 });
+    pencil(ctx, HP([[0, ny + 11], [6, ny + 16], [13, ny + 12]]), { seed: 'j_mr', w: 2.8 });
+    if (J.lick) hpart(capsule([0, ny + 14], [lickAmt * 16, ny + 25], 5.5, 5), 'j_tongue', C.mouth, { w: 2.6 });
+  }
+  // 수염
+  [-1, 1].forEach(sg => [-8, 0, 8].forEach((dy, i) => pencil(ctx, HP([[sg * 26, 18 + dy * 0.5], [sg * 66, 12 + dy * 1.5]]), { seed: 'j_wh' + sg + i, w: 2.2, color: C.maskDark, a: 0.7 })));
+}
+
+/* =====================================================================
+   제로의 하루: 시각 t → 포즈
+   ===================================================================== */
+function hop(J, t, r, a, b, H_, face) {
+  const u = clamp((t - r[0]) / (r[1] - r[0]));
+  J.mode = 'side'; J.fx = lerp(a[0], b[0], u); J.fy = lerp(a[1], b[1], u) - H_ * 4 * u * (1 - u); J.gy = lerp(a[1], b[1], u);
+  J.shadow = 0; J.air = Math.sin(Math.PI * u); J.sq = -0.15 * J.air; J.dir = face; J.rotate = (b[1] < a[1] ? -0.3 : 0.25) * Math.cos(Math.PI * u) * 0.8;
+}
+function crouch(J, t, t0) { if (t >= t0 - 0.14 && t < t0) J.sq = 0.24 * smooth((t - (t0 - 0.14)) / 0.14); }
+function landSq(J, t, tl) { const d = t - tl; if (d >= 0 && d < 0.5) J.sq += 0.3 * Math.exp(-d * 8) * Math.cos(d * 13); }
+function stand(J, p, dir) { J.mode = 'side'; J.fx = p[0]; J.fy = p[1]; J.dir = dir; J.walk = 0; }
+
+const ORB = { cx: 650, cy: 3860, rx: 240, ry: 38, w: 2.45 };
+const orbPos = (th) => [ORB.cx + ORB.rx * Math.cos(th), ORB.cy + ORB.ry * Math.sin(th)];
+function jeroBounceH(t) { return t < TT.orbit[0] ? 0 : 90 * Math.abs(Math.sin(Math.PI * (t - TT.orbit[0]) / 0.8)); }
+function girlBounceH(t) { return t < TT.orbit[0] + 0.4 ? 0 : 66 * Math.abs(Math.sin(Math.PI * (t - TT.orbit[0] - 0.4) / 0.8)); }
+const HUGSPOT = [650, 3885], HUGY = 113;   // 안겼을 때 가슴 높이(발 기준)
+function girlBase(t) {  // 소녀 발 위치 (점프 제외)
+  if (t < TT.girlIn[1]) { const u = smooth(seg(t, TT.girlIn[0], TT.girlIn[1])); return [lerp(1280, orbPos(0)[0], u), ORB.cy]; }
+  if (t < TT.orbit[1]) return orbPos(ORB.w * (t - TT.orbit[0]));
+  const from = orbPos(ORB.w * (TT.orbit[1] - TT.orbit[0])), u = smooth(seg(t, TT.orbit[1], TT.orbit[1] + 0.4));
+  return [lerp(from[0], HUGSPOT[0], u), lerp(from[1], HUGSPOT[1], u)];
+}
+function girlState(t) {
+  const g = { vis: t >= TT.girlIn[0], fx: 0, fy: 0, stride: 0, jump: 0, armA: 0, hug: 0, wand: false, wandDir: -1, tip: [0, 0] };
+  if (!g.vis) return g;
+  const b = girlBase(t); g.fx = b[0]; g.fy = b[1];
+  if (t < TT.girlIn[1]) { g.stride = Math.sin(t * 11) * 15; g.wand = true; g.wandDir = -1; }
+  else if (t < TT.orbit[1]) { g.jump = girlBounceH(t); g.stride = 6 * Math.sin(t * 8); g.wand = true; const th = ORB.w * (t - TT.orbit[0]); g.wandDir = Math.cos(th) > 0 ? -1 : 1; }
+  else {
+    g.hug = t < TT.hugHold[1] ? smooth(seg(t, TT.leap[0], TT.leap[1])) : 1 - smooth(seg(t, TT.hugHold[1], TT.hopOut[1]));
+    if (t > TT.hopOut[1]) g.armA = Math.sin((t - 21.2) * 4);
+    if (t > TT.girlOut[0]) { const u = seg(t, TT.girlOut[0], TT.girlOut[1]); g.fx = lerp(HUGSPOT[0], 1500, u); g.stride = 14 * Math.sin(t * 11) * smooth(u * 3); g.armA = 0; }
+  }
+  g.fy -= g.jump;
+  return g;
+}
+function jeroState(t) {
+  const P = SPOT, J = newJ();
+  J.perk = earPerk(t);
+  const wb = clamp((t - TT.endWag[0]) / (TT.endWag[1] - TT.endWag[0]));
+  if (t >= TT.endWag[0] && t < TT.endWag[1]) J.wag = 1 + 1.7 * Math.sin(Math.PI * wb);
+  const titleLandY = CONFIG.TITLE.y + CONFIG.TITLE.size * 0.42, LX = CONFIG.LAND_X;
+  if (t < TT.fall) { J.vis = false; return J; }
+  if (t < TT.land) { const u = (t - TT.fall) / (TT.land - TT.fall); J.fx = LX; J.fy = lerp(titleLandY - 780, titleLandY, u * u); J.gy = titleLandY; J.shadow = 0; J.up = 0.8; J.sq = -0.12; J.eyes = 'wide'; J.look = [0, -0.5]; J.wag = 2; return J; }
+  if (t < TT.walk1[0]) {
+    const d = t - TT.land; J.fx = LX; J.fy = titleLandY;
+    if (d < 0.15) J.sq = 0.34 * smooth(d / 0.15);
+    else if (d < 0.45) { const u = (d - 0.15) / 0.3; J.fy -= 26 * 4 * u * (1 - u); J.sq = -0.12 * Math.sin(Math.PI * u); J.gy = titleLandY; }
+    else { const k = d - 0.45; J.sq = 0.14 * Math.exp(-k * 9) * Math.cos(k * 16); }
+    return J;
+  }
+  if (t < TT.walk1[1]) { const u = smooth(seg(t, TT.walk1[0], TT.walk1[1])), p = posAt(PATHS[0], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[0], u); J.walk = 1; J.ph = t * 11; return J; }
+  if (t < TT.hopA[0]) { J.fx = P.base[0]; J.fy = P.base[1]; J.up = 0; if (t > TT.hopA[0] - 0.14) { J.mode = 'side'; J.dir = 1; crouch(J, t, TT.hopA[0]); } return J; }
+  if (t < TT.hopA[1]) { hop(J, t, TT.hopA, P.base, P.A, 60, 1); crouch(J, t, TT.hopA[0]); return J; }
+  if (t < TT.hopB[0]) {
+    stand(J, P.A, 1); landSq(J, t, TT.hopA[1]);
+    if (t >= TT.pokeA[0] && t < TT.pokeA[1]) { const u = (t - TT.pokeA[0]) / (TT.pokeA[1] - TT.pokeA[0]); J.reach = Math.sin(Math.PI * u) * 0.95 + 0.0; J.reachTo = [(HOLES[1][0] - P.A[0] - 14) / J.S, (HOLES[1][1] - P.A[1]) / J.S]; J.eyes = 'wide'; J.look = [1, 0]; }
+    crouch(J, t, TT.hopB[0]); return J;
+  }
+  if (t < TT.hopB[1]) { hop(J, t, TT.hopB, P.A, P.B, 70, 1); return J; }
+  if (t < TT.hopC[0]) {
+    stand(J, P.B, -1); landSq(J, t, TT.hopB[1]);
+    if (t >= TT.pokeB[0] && t < TT.pokeB[1]) { const u = (t - TT.pokeB[0]) / (TT.pokeB[1] - TT.pokeB[0]); J.reach = Math.sin(Math.PI * u) * 0.95; J.reachTo = [(P.B[0] - HOLES[2][0] - 14) / J.S, (HOLES[2][1] - P.B[1]) / J.S]; J.eyes = 'wide'; J.look = [-1, 0]; }
+    crouch(J, t, TT.hopC[0]); return J;
+  }
+  if (t < TT.hopC[1]) { hop(J, t, TT.hopC, P.B, P.C, 60, -1); return J; }
+  if (t < TT.hopDown[0]) { J.mode = 'front'; J.fx = P.C[0]; J.fy = P.C[1]; landSq(J, t, TT.hopC[1]); J.look = [0.5, 0.3]; if (t > TT.hopDown[0] - 0.14) { J.mode = 'side'; J.dir = 1; J.sq = 0; crouch(J, t, TT.hopDown[0]); } return J; }
+  if (t < TT.hopDown[1]) { hop(J, t, TT.hopDown, P.C, P.base2, 50, 1); return J; }
+  if (t < TT.walk2[1]) {
+    if (t < TT.hopDown[1] + 0.35) { J.mode = 'side'; J.fx = P.base2[0]; J.fy = P.base2[1]; landSq(J, t, TT.hopDown[1]); }
+    const u = smooth(seg(t, TT.hopDown[1], TT.walk2[1])), p = posAt(PATHS[1], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[1], u); J.walk = 1; J.ph = t * 11;
+    if (t < TT.hopDown[1] + 0.3) { J.walk = 0; landSq(J, t, TT.hopDown[1]); J.fy = p.y; }
+    return J;
+  }
+  if (t < TT.walk3[0]) {      // 간식 먹기
+    const end = PATHS[1].pts[PATHS[1].pts.length - 1]; stand(J, end, 1);
+    const hd = smooth(seg(t, TT.dive[0], TT.dive[1])) * (1 - smooth(seg(t, TT.chew[1], TT.chew[1] + 0.25)));
+    J.headDown = hd; J.tailUp = smooth(seg(t, TT.sniff[0], TT.sniff[0] + 0.3)); J.wag = 0.55;
+    if (t >= TT.sniff[0] && t < TT.dive[0]) { J.nose = 1; J.headDown = 0.12 * (0.5 + 0.5 * Math.sin(t * 18)); J.look = [0.5, 0.6]; }
+    if (t >= TT.chew[0] && t < TT.chew[1]) { J.chew = 1; J.headDown = 0.97 + 0.03 * Math.sin(t * 11); J.eyes = 'squint'; }
+    if (t >= TT.lick[0] && t < TT.lick[1]) { J.lick = 1; }
+    if (t >= TT.squint[0]) J.eyes = 'squint';
+    if (t >= TT.dive[0] && t < TT.chew[0]) J.nose = 1;
+    if (t >= TT.hopDown[1] && t < TT.sniff[0]) { J.mode = 'side'; }
+    return J;
+  }
+  if (t < TT.walk3[1]) { const u = smooth(seg(t, TT.walk3[0], TT.walk3[1])), p = posAt(PATHS[2], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[2], u); J.walk = 1; J.ph = t * 11; return J; }
+  if (t < TT.walk4[0]) {      // 일어서서 놀아 주세요
+    const p = PATHS[2].pts[PATHS[2].pts.length - 1]; J.mode = 'front'; J.fx = p[0]; J.fy = p[1];
+    const up = smooth(seg(t, TT.standUp[0], TT.standUp[1])) * (1 - smooth(seg(t, TT.sitDown[0], TT.sitDown[1])));
+    J.up = up; J.eyes = 'wide'; J.look = [0, -1]; J.wag = 1;
+    if (t >= TT.standUp[1]) J.sq = 0.045 * Math.sin(t * 9);
+    if (t >= TT.wave[0] && t < TT.wave[1]) { const s = Math.sin((t - TT.wave[0]) * 11); J.armL = [-14 * s, -20 * s - 10]; J.armR = [14 * s, 20 * s - 10]; }
+    return J;
+  }
+  if (t < TT.walk4[1]) { const u = smooth(seg(t, TT.walk4[0], TT.walk4[1])), p = posAt(PATHS[3], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[3], u); J.walk = 1; J.ph = t * 11; return J; }
+  if (t < TT.orbit[0]) { const p = PATHS[3].pts[PATHS[3].pts.length - 1]; J.fx = p[0]; J.fy = p[1]; J.eyes = 'wide'; J.look = [1, -0.4]; return J; }
+  if (t < TT.orbit[1]) {
+    const th = ORB.w * (t - TT.orbit[0]) + Math.PI, p = orbPos(th), hh = jeroBounceH(t), dx = -ORB.rx * Math.sin(th);
+    J.mode = 'side'; J.fx = p[0]; J.gy = p[1]; J.fy = p[1] - hh; J.dir = dx >= 0 ? 1 : -1;
+    const u = hh / 90; J.air = u * 0.9; J.sq = -0.1 * u; J.walk = 0.3; J.ph = t * 14;
+    const swipe = 0.5 + 0.5 * Math.sin(t * 13); J.reach = u > 0.15 ? swipe : 0; J.reachTo = [118, -112]; J.eyes = 'wide'; J.look = [J.dir, -0.8];
+    const lt = (t - TT.orbit[0]) % 0.8; if (lt < 0.1) J.sq = 0.22 * (1 - lt / 0.1); // 착지
+    return J;
+  }
+  if (t < TT.leap[1]) {
+    const th0 = ORB.w * (TT.orbit[1] - TT.orbit[0]) + Math.PI, a = orbPos(th0), g = girlState(t), chest = [g.fx, g.fy - HUGY];
+    const to = [chest[0], chest[1] + 53], u = smooth(seg(t, TT.leap[0], TT.leap[1]));
+    J.mode = 'front'; J.hs = lerp(1, 0.62, u); J.fx = lerp(a[0], to[0], u); J.gy = lerp(a[1], to[1], u); J.fy = lerp(a[1], to[1], u) - 120 * 4 * u * (1 - u) * (1 - u * 0.2);
+    J.up = 0.55; J.eyes = 'wide'; J.hug = u * 0.6; J.look = [0, -0.3]; J.shadow = 0; return J;
+  }
+  if (t < TT.hopOut[0]) {
+    const g = girlState(t), lift = 24 * smooth(seg(t, TT.hugHold[0], 20.0)), chest = [g.fx, g.fy - HUGY - lift];
+    J.mode = 'front'; J.hs = 0.62; J.fx = chest[0]; J.fy = chest[1] + 53; J.up = 0.5; J.hug = 1; J.eyes = 'happy'; J.mouth = 'smile'; J.shadow = 0; J.sq = 0.03 * Math.sin(t * 8); return J;
+  }
+  if (t < TT.hopOut[1]) {
+    const g = girlState(t), from = [g.fx, g.fy - HUGY + 53 - 24], u = seg(t, TT.hopOut[0], TT.hopOut[1]), to = [620, 4252];
+    J.mode = 'front'; J.hs = lerp(0.62, 1, smooth(u)); J.fx = lerp(from[0], to[0], u); J.gy = lerp(from[1] + 40, to[1], u); J.fy = lerp(from[1], to[1], u) - 150 * 4 * u * (1 - u); J.up = 0.4 * (1 - u); J.eyes = 'open'; J.hug = 1 - u; J.shadow = u; return J;
+  }
+  J.mode = 'front'; J.fx = 620; J.fy = 4252; J.sq = 0; J.look = [0, 0.1];
+  { const d = t - TT.hopOut[1]; if (d < 0.5) J.sq = 0.26 * Math.exp(-d * 8) * Math.cos(d * 13); }
+  return J;
+}
+
+/* =====================================================================
+   여자아이 (단순한 연필 선 인물)
+   ===================================================================== */
+function drawGirl(ctx, g, t, front) {
+  if (!g.vis) return;
+  const X = (x, y) => [g.fx + x, g.fy + y];
+  const P = a => a.map(p => X(p[0], p[1]));
+  const part = (poly, id, fill, o) => pencil(ctx, P(poly), Object.assign({ seed: id, closed: true, fill, w: 4 }, o || {}));
+  const st = g.stride, air = g.jump > 4 ? 1 : 0;
+  if (!front) {
+    pencil(ctx, ellipsePts(g.fx, g.fy + g.jump + 3, 56, 10, 14), { seed: 'gshadow', closed: true, fill: C.furShade, fa: 0.5, line: false });
+    // 다리 + 신발
+    [-1, 1].forEach((sg, i) => {
+      const fx = sg * 17 + st * sg * 0.9, fy = -12 - (st * sg > 6 ? 8 : 0) - air * 10;
+      part(capsule([sg * 14, -98], [fx, fy], 7.5), 'g_leg' + i, C.skin);
+      part(ellipsePts(fx + sg * 3, fy + 8, 17, 9, 12), 'g_shoe' + i, C.shoe);
+    });
+    // 원피스
+    part([[-30, -190], [30, -190], [54, -92], [-54, -92]], 'g_dress', C.dress);
+    pencil(ctx, P([[-50, -98], [-40, -88], [-28, -98], [-14, -88], [0, -98], [14, -88], [28, -98], [40, -88], [50, -98]]), { seed: 'g_hem', w: 3 });
+    // 팔(왼쪽은 흔들기, 오른쪽은 깃털 막대)
+    const armLy = -150 + g.armA * 14 + (g.wand ? Math.sin(t * 8) * 6 : 0);
+    part(capsule([-30, -182], [-44 - g.armA * 6, armLy], 7), 'g_armL', C.skin);
+    // 머리
+    part([[50, -228], [50, -200], [40, -192], [-40, -192], [-50, -200], [-50, -228], [-44, -258], [-22, -278], [22, -278], [44, -258]], 'g_hairb', C.hair);
+    part(ellipsePts(0, -230, 38, 40, 22), 'g_head', C.skin);
+    part([[-40, -232], [-33, -262], [0, -272], [33, -262], [40, -232], [26, -248], [8, -240], [-10, -248], [-26, -240]], 'g_fringe', C.hair);
+    [-1, 1].forEach((sg, i) => { part(ellipsePts(sg * 14, -226, 3.2, 3.8, 8), 'g_eye' + i, C.ink, { line: false }); part(ellipsePts(sg * 25, -214, 7, 4.5, 8), 'g_blush' + i, C.dress, { line: false, fa: 0.6 }); });
+    pencil(ctx, P([[-9, -212], [0, -206], [9, -212]]), { seed: 'g_smile', w: 3 });
+    // 깃털 장난감 막대
+    if (g.wand) {
+      const hand = X(40 * -g.wandDir * -1 * -1 + 0, -150); // 오른팔(화면 기준 wandDir 방향)
+      const hx = g.fx + g.wandDir * 42, hy = g.fy - 152 + Math.sin(t * 8) * 8;
+      part(capsule([g.wandDir * 30, -182], [g.wandDir * 42, -152 + Math.sin(t * 8) * 8], 7), 'g_armR', C.skin);
+      const tip = [hx + g.wandDir * 105 + Math.sin(t * 8) * 38 * -g.wandDir, hy - 92 + Math.cos(t * 8) * 14];
+      g.tip = tip;
+      pencil(ctx, [[hx, hy], tip], { seed: 'g_wand', w: 4, color: C.maskDark });
+      [-1, 0, 1].forEach((k, i) => pencil(ctx, [[tip[0], tip[1]], [tip[0] + k * 22 + 4, tip[1] - 30 - Math.abs(k) * -4]], { seed: 'g_fea' + i, w: 4.5, color: i === 1 ? C.dress : C.leaf }));
+      pencil(ctx, [[tip[0], tip[1]], [tip[0] - 5, tip[1] - 38]], { seed: 'g_fea3', w: 3, color: C.dress });
+    } else if (g.hug < 0.05) {
+      part(capsule([30, -182], [46 + g.armA * 8, -150 - g.armA * 20], 7), 'g_armR', C.skin);
+    }
+  } else {
+    // 안아 올리는 팔 (제로 위에 겹쳐 그림)
+    if (g.hug > 0.05) {
+      const k = g.hug, ch = [0, -HUGY - (g.hugLift || 0)];
+      part(capsule([-30, -182], [lerp(-44, -30, k), lerp(-150, ch[1] + 38, k)], 7.5), 'g_hugL', C.skin);
+      part(capsule([30, -182], [lerp(44, 30, k), lerp(-150, ch[1] + 38, k)], 7.5), 'g_hugR', C.skin);
+    }
+  }
+}
+
+/* =====================================================================
+   효과: 먼지 선, 하트, 반짝임, 말풍선 낙서
+   ===================================================================== */
+const DUST = [
+  [1.5, 'j'], [4.45, 'j'], [5.65, 'j'], [6.4, 'j'], [7.15, 'j'],
+  [16.6, 'j'], [17.4, 'j'], [18.2, 'j'], [19.0, 'j'], [16.2, 'g'], [17.0, 'g'], [17.8, 'g'], [18.6, 'g'], [21.2, 'j']
+];
+function drawDust(ctx, t) {
+  DUST.forEach((d, i) => {
+    const age = t - d[0]; if (age < 0 || age > 0.45) return;
+    const s = d[1] === 'j' ? jeroState(d[0] + 0.001) : girlState(d[0] + 0.001);
+    const x = s.fx, y = d[1] === 'j' ? (s.gy === null ? s.fy : s.gy) : s.fy + (s.jump || 0), p = age / 0.45;
+    [-155, -90, -25].forEach((deg, k) => {
+      const a = deg * Math.PI / 180, r0 = 20 + 18 * p, r1 = r0 + 22 * (1 - p * 0.4);
+      pencil(ctx, [[x + Math.cos(a) * r0 * 1.5, y - 4 + Math.sin(a) * r0], [x + Math.cos(a) * r1 * 1.5, y - 4 + Math.sin(a) * r1]], { seed: 'dust' + i + k, w: 3.2, color: C.mask, a: 1 - p * p, p: 1, step: 20 });
+    });
+  });
+}
+function heartPoly(cx, cy, s) { const pts = []; for (let i = 0; i < 26; i++) { const a = i / 26 * Math.PI * 2; pts.push([cx + 16 * Math.pow(Math.sin(a), 3) * s / 16 * 16, cy - (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) * s]); } return pts; }
+function drawHeart(ctx, cx, cy, s, seed, a, rot) { pencil(ctx, heartPoly(cx, cy, s), { seed, closed: true, fill: C.mouth, w: 3.5, a }); }
+function drawPaw(ctx, x, y, s, seed, a) {
+  pencil(ctx, ellipsePts(x, y + 8 * s, 15 * s, 11 * s, 12), { seed: seed + 'p', closed: true, fill: C.mask, w: 3, a });
+  [[-17, -8], [-6, -19], [6, -19], [17, -8]].forEach((q, i) => pencil(ctx, ellipsePts(x + q[0] * s, y + q[1] * s, 6 * s, 7.5 * s, 8), { seed: seed + i, closed: true, fill: C.mask, w: 3, a }));
+}
+function sparkle(ctx, x, y, r, seed, a, rot) {
+  const ln = (ang, rr) => [[x - Math.cos(ang) * rr, y - Math.sin(ang) * rr], [x + Math.cos(ang) * rr, y + Math.sin(ang) * rr]];
+  pencil(ctx, ln(rot, r), { seed: seed + 'a', w: 3.5, color: C.ink, a }); pencil(ctx, ln(rot + Math.PI / 2, r), { seed: seed + 'b', w: 3.5, color: C.ink, a });
+  pencil(ctx, ln(rot + Math.PI / 4, r * 0.5), { seed: seed + 'c', w: 3, color: C.holeRim, a }); pencil(ctx, ln(rot - Math.PI / 4, r * 0.5), { seed: seed + 'd', w: 3, color: C.holeRim, a });
+}
+function drawFx(ctx, t) {
+  drawDust(ctx, t);
+  // 먹는 동안 떠오르는 하트
+  [0, 1, 2].forEach(i => {
+    const t0 = TT.hearts[0] + i * 0.35, age = t - t0; if (age < 0 || age > 1.5) return;
+    const u = age / 1.5, x = 600 + i * 46 + Math.sin(u * 6 + i) * 10, y = 1770 - 120 * u;
+    drawHeart(ctx, x, y, 1.1 + i * 0.15, 'eh' + i, Math.sin(Math.PI * Math.min(1, u * 1.1)) * 1);
+  });
+  // ③ 말풍선 낙서
+  if (t >= TT.bubbles[0] && t < TT.bubbles[1] + 0.3) {
+    const base = PATHS[2].pts[PATHS[2].pts.length - 1], fade = 1 - seg(t, TT.bubbles[1] - 0.2, TT.bubbles[1] + 0.2);
+    [[12.4, 'heart', 95, -300], [12.8, 'paw', -85, -340], [13.2, 'heart', 40, -400]].forEach((b, i) => {
+      const age = t - b[0]; if (age < 0) return;
+      const sc = easeOutBack(age / 0.3) , x = base[0] + b[2], y = base[1] + b[3] - 12 * age, r = 40 * sc;
+      pencil(ctx, ellipsePts(x, y, r, r * 0.86, 20), { seed: 'bub' + i, closed: true, fill: C.white, fa: 0.7, w: 3.5, a: fade });
+      pencil(ctx, ellipsePts(x - r * 0.9, y + r * 1.0, r * 0.14, r * 0.14, 8), { seed: 'bubd' + i, closed: true, w: 3, a: fade });
+      pencil(ctx, ellipsePts(x - r * 0.6, y + r * 0.85, r * 0.22, r * 0.2, 8), { seed: 'bubd2' + i, closed: true, w: 3, a: fade });
+      if (b[1] === 'heart') drawHeart(ctx, x, y + 3, 1.05 * sc, 'bh' + i, fade); else drawPaw(ctx, x, y - 4, 0.95 * sc, 'bp' + i, fade);
+    });
+  }
+  // ④ 안겼을 때 반짝임과 하트
+  if (t >= TT.leap[1] - 0.1 && t < TT.hopOut[0] + 0.2) {
+    const g = girlState(t), cx = g.fx, cy = g.fy - 190;
+    for (let i = 0; i < 7; i++) {
+      const t0 = TT.leap[1] - 0.1 + i * 0.16, age = t - t0; if (age < 0) continue;
+      const ang = i * 2.4 + 0.5, rad = 120 + (i % 3) * 22, x = cx + Math.cos(ang) * rad * 1.1, y = cy + Math.sin(ang) * rad * 0.8 - 14 * Math.min(age, 1.2);
+      const aa = Math.min(1, age / 0.2) * (t > TT.hopOut[0] ? 1 - (t - TT.hopOut[0]) / 0.2 : 1);
+      if (i % 2) drawHeart(ctx, x, y, 0.95, 'sh' + i, aa); else sparkle(ctx, x, y, 20 + (i % 3) * 4, 'sp' + i, aa, age * 2 + i);
+    }
+  }
+}
+
+/* =====================================================================
+   장면 합치기
+   ===================================================================== */
+function scene(ctx, t) {
+  G.v = ((Math.floor(t * 12) % 3) + 3) % 3;
+  const cam = camAt(t);
+  drawBackdrop(ctx, cam);
+  drawPaper(ctx, cam);
+  ctx.setTransform(cam.z, 0, 0, cam.z, 540 - cam.x * cam.z, 960 - cam.y * cam.z);
+  drawLabels(ctx, t);
+  drawPaths(ctx, t);
+  drawTower(ctx, t);
+  drawPlant(ctx, t);
+  drawBowlBack(ctx, t);
+  const g = girlState(t), J = jeroState(t), hugging = t >= TT.leap[0] && t < TT.hopOut[1];
+  const jBehind = t >= TT.orbit[0] && t < TT.orbit[1] && (J.gy === null ? J.fy : J.gy) < g.fy + g.jump;   // 깊이 순서
+  if (jBehind) { drawJero(ctx, J, t); drawGirl(ctx, g, t, false); } else { drawGirl(ctx, g, t, false); drawJero(ctx, J, t); }
+  drawBowlFront(ctx, t);
+  if (hugging) { g.hugLift = (t >= TT.hugHold[0] ? 24 * smooth(seg(t, TT.hugHold[0], 20.0)) : 0); drawGirl(ctx, g, t, true); }
+  drawFx(ctx, t);
+  drawChecks(ctx, t);
+  drawVignette(ctx);
+}
+
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const tmp = document.createElement('canvas'); tmp.width = CONFIG.W; tmp.height = CONFIG.H; const tctx = tmp.getContext('2d');
+function render(t) {
+  const D = CONFIG.DURATION; t = ((t % D) + D) % D;
+  const cam = camAt(t);
+  if (cam.whoosh && cam.speed > 500) {      // 휙 넘어가는 순간에만 모션 블러
+    const n = 5, shutter = Math.min(0.07, cam.speed / 20000 + 0.02);
+    for (let k = 0; k < n; k++) {
+      scene(tctx, Math.max(0, t - k * shutter / n));
+      if (k === 0) { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(tmp, 0, 0); }
+      else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1 / (k + 1); ctx.drawImage(tmp, 0, 0); }
+    }
+    ctx.globalAlpha = 1;
+  } else scene(ctx, t);
+}
+window.render = render;
+
+/* =====================================================================
+   재생 막대 · 창 크기에 맞추기
+   ===================================================================== */
+const playBtn = document.getElementById('play'), seek = document.getElementById('seek'), bar = document.getElementById('bar');
+let playing = true, clock = 0, last = performance.now();
+function fit() {
+  const availH = innerHeight - 52, s = Math.min(innerWidth / CONFIG.W, availH / CONFIG.H);
+  canvas.style.width = Math.floor(CONFIG.W * s) + 'px'; canvas.style.height = Math.floor(CONFIG.H * s) + 'px'; bar.style.width = canvas.style.width;
+}
+addEventListener('resize', fit); fit();
+playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? '❚❚' : '▶'; last = performance.now(); };
+seek.addEventListener('input', () => { clock = parseFloat(seek.value); render(clock); });
+function frame(now) {
+  if (playing) { clock = (clock + (now - last) / 1000) % CONFIG.DURATION; seek.value = clock; render(clock); }
+  last = now; requestAnimationFrame(frame);
+}
+const fixed = /[#&]t=([\d.]+)/.exec(location.hash);
+buildDoodleTile();
+function start() {
+  if (fixed) { playing = false; playBtn.textContent = '▶'; clock = parseFloat(fixed[1]); seek.value = clock; render(clock); }
+  else { last = performance.now(); requestAnimationFrame(frame); }
+  window.__ready = true;
+}
+Promise.race([document.fonts.load(fontStr(80), '귀여운 고양이 제로'), new Promise(r => setTimeout(r, 2500))]).then(start, start);
+</script>
+</body>
+</html>
