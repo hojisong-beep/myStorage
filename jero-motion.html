@@ -191,6 +191,27 @@ function limb(a, b, r0, r1, n = 6) {   // 굵기가 변하는 다리
   for (let i = 0; i <= n; i++) { const t = ang + Math.PI / 2 + Math.PI * i / n; out.push([a[0] + Math.cos(t) * r0, a[1] + Math.sin(t) * r0]); }
   return out;
 }
+/* 관절이 있는 다리: 두 마디(IK)로 꺾이고 무릎/팔꿈치가 sgnX 쪽으로 튀어나옴 */
+function bentLimb(H0, F0, a, b, sgnX, r0, rk, r1) {
+  let dx = F0[0] - H0[0], dy = F0[1] - H0[1], d = Math.hypot(dx, dy) || 1;
+  const dd = clamp(d, Math.abs(a - b) + 1, a + b - 0.5), F = [H0[0] + dx / d * dd, H0[1] + dy / d * dd];
+  dx = F[0] - H0[0]; dy = F[1] - H0[1]; d = dd;
+  const x = (d * d + a * a - b * b) / (2 * d), h = Math.sqrt(Math.max(0, a * a - x * x)), ux = dx / d, uy = dy / d;
+  let J = [H0[0] + ux * x - uy * h, H0[1] + uy * x + ux * h];
+  const J2 = [H0[0] + ux * x + uy * h, H0[1] + uy * x - ux * h];
+  if ((J2[0] - J[0]) * sgnX > 0) J = J2;
+  const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+  const P = [H0, mid(H0, J), J, mid(J, F), F], R = [r0, (r0 + rk) / 2, rk, (rk + r1) / 2, r1];
+  const left = [], right = [];
+  for (let i = 0; i < P.length; i++) {
+    const p0 = P[Math.max(0, i - 1)], p1 = P[Math.min(P.length - 1, i + 1)];
+    let tx = p1[0] - p0[0], ty = p1[1] - p0[1]; const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+    left.push([P[i][0] - ty * R[i], P[i][1] + tx * R[i]]); right.push([P[i][0] + ty * R[i], P[i][1] - tx * R[i]]);
+  }
+  const cap = (c, r, a0) => { const o = []; for (let k = 1; k < 6; k++) { const t = a0 + Math.PI * k / 6; o.push([c[0] + Math.cos(t) * r, c[1] + Math.sin(t) * r]); } return o; };
+  const angF = Math.atan2(F[1] - J[1], F[0] - J[0]), angH = Math.atan2(J[1] - H0[1], J[0] - H0[0]);
+  return [...left, ...cap(F, r1, angF - Math.PI / 2), ...right.reverse(), ...cap(H0, r0, angH + Math.PI / 2)];
+}
 /* 털 가장자리: 닫힌 도형 둘레에 짧은 삐죽 선 */
 function furify(poly, lenFn, seed, space = 15) {
   const d = dense(poly, space, true); d.pop();
@@ -487,16 +508,16 @@ function drawJero(ctx, J, t) {
     const tail = tailPoly(-72, -98, lerp(158, 98, J.tailUp), lerp(110, 88, J.tailUp), 108, sway, 17);
     pencil(ctx, TP(furify(tail, () => 8, 21, 14)), { seed: 'j_tail', closed: true, fill: C.mask, w: 4 });
     // 먼 쪽 다리
-    part(limb([-34, -72], [hindFoot(1)[0] + 14, hindFoot(1)[1]], 20, 10), 'j_hindfar', shade); part(ellipsePts(hindFoot(1)[0] + 20, hindFoot(1)[1] + 2, 15, 8, 10), 'j_hpawfar', shade);
-    part(limb([66, -76], [ff1[0] - 6, ff1[1]], 15, 9), 'j_frontfar', shade); part(ellipsePts(ff1[0] + 2, ff1[1] + 2, 14, 8, 10), 'j_fpawfar', shade);
+    part(bentLimb([-34, -72], [hindFoot(1)[0] + 14, hindFoot(1)[1]], 44, 40, 1, 19, 11, 9), 'j_hindfar', shade); part(ellipsePts(hindFoot(1)[0] + 20, hindFoot(1)[1] + 2, 15, 8, 10), 'j_hpawfar', shade);
+    part(bentLimb([66, -76], [ff1[0] - 6, ff1[1]], 40, 38, -1, 14, 10, 8.5), 'j_frontfar', shade); part(ellipsePts(ff1[0] + 2, ff1[1] + 2, 14, 8, 10), 'j_fpawfar', shade);
     // 몸통
     const body = furify(ellipsePts(0, -88, 80, 50, 28), () => 10, 3, 17);
     part(body, 'j_body', shade);
     part(ellipsePts(0, -88, 76, 46, 16, 0, 0.35, Math.PI - 0.35), 'j_belly', C.white, { line: false, fa: 0.95 });
     // 가까운 다리
-    part(limb([-46, -70], hindFoot(0), 24, 11), 'j_hindnear', C.white);
+    part(bentLimb([-46, -70], hindFoot(0), 44, 40, 1, 22, 13, 10.5), 'j_hindnear', C.white);
     part(ellipsePts(hindFoot(0)[0] + 8, hindFoot(0)[1] + 2, 16, 8.5, 10), 'j_hpaw', C.white);
-    part(limb([54, -78], nearF, 16, 9.5), 'j_frontnear', C.white);
+    part(bentLimb([54, -78], nearF, 40, 38, -1, 15, 11, 9.5), 'j_frontnear', C.white);
     part(ellipsePts(nearF[0] + 3, nearF[1] + 2, 14.5, 8.5, 10), 'j_fpaw', C.white);
     // 머리 위치
     const hd = J.headDown, hl = [lerp(88, 134, hd), lerp(-122, -52, hd)];
@@ -521,7 +542,7 @@ function drawJero(ctx, J, t) {
       let end = [lerp(base[0], hug[0], J.hug) + adj[0] * sgn, lerp(base[1], hug[1], J.hug) + adj[1]];
       return [sh, end];
     };
-    [[-1, J.armL, 'j_armL'], [1, J.armR, 'j_armR']].forEach(([sg, adj, id]) => { const [sh, end] = arm(sg, adj); part(limb(sh, end, 14, 10), id, C.white); part(ellipsePts(end[0], end[1] + 2, 12, 9, 10), id + 'p', C.white); });
+    [[-1, J.armL, 'j_armL'], [1, J.armR, 'j_armR']].forEach(([sg, adj, id]) => { const [sh, end] = arm(sg, adj); part(bentLimb(sh, end, 40, 38, sg, 14, 11, 9.5), id, C.white); part(ellipsePts(end[0], end[1] + 2, 12, 9, 10), id + 'p', C.white); });
     headPos = T(0, cy - ry - 12); headRot = 0;
   }
 
