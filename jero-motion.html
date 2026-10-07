@@ -19,7 +19,7 @@
 <body>
 <div id="app">
   <canvas id="c" width="1080" height="1920"></canvas>
-  <div id="bar"><button id="play" aria-label="재생/일시정지">❚❚</button><input id="seek" type="range" min="0" max="24" step="0.01" value="0"></div>
+  <div id="bar"><button id="play" aria-label="재생/일시정지">❚❚</button><input id="seek" type="range" min="0" max="28.2" step="0.01" value="0"></div>
 </div>
 <script>
 'use strict';
@@ -69,14 +69,16 @@ const CONFIG = {
     { t: 6.4,  x: 450, y: 1070, z: 1.24, m: 'slow' },
     { t: 6.9,  x: 640, y: 1890, z: 1.20, m: 'accel' },
     { t: 10.2, x: 650, y: 1930, z: 1.31, m: 'slow' },
-    { t: 10.7, x: 450, y: 2790, z: 1.15, m: 'whoosh' },
-    { t: 14.2, x: 445, y: 2805, z: 1.23, m: 'slow' },
-    { t: 14.6, x: 620, y: 3790, z: 1.06, m: 'whoosh' },
-    { t: 20.0, x: 622, y: 3800, z: 1.13, m: 'slow' },
-    { t: 20.4, x: 620, y: 2240, z: 0.43, m: 'accel' },
-    { t: 21.2, x: 620, y: 2230, z: 0.45, m: 'slow' },
-    { t: 21.5, x: 620, y: 4000, z: 1.07, m: 'snap' },
-    { t: 24.0, x: 620, y: 4010, z: 1.12, m: 'slow' }
+    { t: 10.7,  x: 560, y: 2440, z: 1.20, m: 'whoosh' },     // ③ 낮잠 자기
+    { t: 14.1,  x: 565, y: 2445, z: 1.30, m: 'slow' },
+    { t: 14.9,  x: 450, y: 2790, z: 1.15, m: 'whoosh' },     // ④ 놀아 주세요 (아래 카메라는 NAP 이후 실제 시각)
+    { t: 18.4,  x: 445, y: 2805, z: 1.23, m: 'slow' },
+    { t: 18.8,  x: 620, y: 3790, z: 1.06, m: 'whoosh' },
+    { t: 24.2,  x: 622, y: 3800, z: 1.13, m: 'slow' },
+    { t: 24.6,  x: 620, y: 2240, z: 0.43, m: 'accel' },
+    { t: 25.4,  x: 620, y: 2230, z: 0.45, m: 'slow' },
+    { t: 25.7,  x: 620, y: 4000, z: 1.07, m: 'snap' },
+    { t: 28.2,  x: 620, y: 4010, z: 1.12, m: 'slow' }
   ],
   WHOOSH_SEC: 0.45, SNAP_SEC: 0.22,
 
@@ -91,14 +93,30 @@ const CONFIG = {
     hopA: [4.0, 4.45], pokeA: [4.6, 5.0], hopB: [5.2, 5.65], pokeB: [5.7, 5.95], hopC: [6.0, 6.4], hopDown: [6.75, 7.15],
     walk2: [7.15, 8.4], bowl: [6.95, 7.45], plant: [7.1, 7.6], kibble: [7.4, 8.4], kibbleGone: [9.0, 9.7],
     sniff: [8.4, 8.8], dive: [8.8, 9.0], chew: [9.0, 9.7], lick: [9.8, 10.2], squint: [10.1, 10.7], hearts: [8.9, 10.0],
-    walk3: [10.7, 12.2], standUp: [12.2, 12.6], bubbles: [12.4, 14.4], wave: [12.6, 14.2], sitDown: [14.0, 14.2],
+    walk3: [10.71, 12.2], standUp: [12.2, 12.6], bubbles: [12.4, 14.4], wave: [12.6, 14.2], sitDown: [14.0, 14.2],
     walk4: [14.2, 15.2], girlIn: [14.6, 15.8], orbit: [15.8, 19.0], leap: [19.0, 19.55], hugHold: [19.55, 20.7],
+    eatEnd: 10.7,
     hopOut: [20.7, 21.2], girlOut: [21.0, 22.4], overpaint: [20.4, 21.3], checks: [20.4, 21.3], endWag: [22.4, 23.2]
   },
   BLINK_TIMES: [1.95, 2.0, 6.0, 10.0, 14.0, 18.0, 22.0, 23.1],     // 4초에 한 번
   EAR_PERKS: [1.5, 3.0, 4.45, 8.4, 12.2, 13.4, 14.6, 16.0, 19.0, 21.2],   // 소리 날 때 쫑긋
-  LAND_X: 760
+  LAND_X: 760,
+
+  /* 낮잠 자기 단계(②와 ③ 사이): 이 시간만큼 이후 장면이 뒤로 밀립니다 (전체 24초 → 28.2초) */
+  NAP: { from: 10.7, len: 4.2, walk: [10.7, 11.9], sit: [11.9, 12.1], sleep: [12.1, 14.0], wake: [14.0, 14.5],
+         bed: { x: 545, y: 2420 },
+         label: { str: '낮잠 자기', x: 790, y: 2545, size: 70, t: 11.4 } }
 };
+/* 시간표 밀기: 낮잠 단계를 끼워 넣기 위해 10.7초 이후 시각(카메라 제외)을 모두 NAP.len 만큼 뒤로 */
+(function shiftTimeline() {
+  const N = CONFIG.NAP, sh = v => (v > N.from + 1e-6 ? v + N.len : v);
+  for (const k in CONFIG.T) { const v = CONFIG.T[k]; if (Array.isArray(v)) CONFIG.T[k] = v.map(sh); }
+  CONFIG.LABELS.forEach(L => L.t = sh(L.t)); CONFIG.END.t = sh(CONFIG.END.t); CONFIG.SIGN.t = sh(CONFIG.SIGN.t);
+  CONFIG.BLINK_TIMES = CONFIG.BLINK_TIMES.map(sh).concat([14.55]); CONFIG.EAR_PERKS = CONFIG.EAR_PERKS.map(sh).concat([14.5]);
+  CONFIG.DURATION += N.len;
+  CONFIG.LABELS.splice(2, 0, Object.assign({}, N.label));
+  CONFIG.LABELS.forEach((L, i) => L.n = i + 1);       // 번호를 1~5로 다시 매김
+})();
 
 /* =====================================================================
    기본 도구
@@ -383,7 +401,7 @@ function drawLabels(ctx, t) {
 }
 function drawChecks(ctx, t) {
   CONFIG.LABELS.forEach((L, i) => {
-    const t0 = TT.checks[0] + i * 0.2; if (t < t0) return;
+    const t0 = TT.checks[0] + i * 0.15; if (t < t0) return;
     const g = labelGeom(ctx, L), s = L.size * 0.5, cx = g.right + s * 1.4, cy = L.y;
     pencil(ctx, [[cx - s * 0.5, cy + s * 0.05], [cx - s * 0.12, cy + s * 0.45], [cx + s * 0.6, cy - s * 0.5]], { seed: 'ck' + i, p: seg(t, t0, t0 + 0.28), w: 8, color: C.check });
   });
@@ -395,10 +413,11 @@ function drawChecks(ctx, t) {
 const PATHS = [
   smoothPath([[760, 395], [690, 560], [520, 700], [580, 860], [470, 1020], [400, 1285]]),
   smoothPath([[500, 1292], [430, 1450], [560, 1600], [480, 1760], [545, 1935]]),
-  smoothPath([[545, 1938], [610, 2200], [480, 2450], [560, 2700], [450, 2990]]),
+  smoothPath([[545, 1938], [640, 2090], [520, 2230], [610, 2330], [545, 2412]]),   // 방석으로
+  smoothPath([[545, 2415], [600, 2560], [480, 2720], [560, 2850], [450, 2990]]),
   smoothPath([[450, 2995], [380, 3250], [520, 3480], [430, 3680], [410, 3860]])
 ];
-const PATH_TIMES = [TT.walk1, TT.walk2, TT.walk3, TT.walk4];
+const PATH_TIMES = [TT.walk1, TT.walk2, CONFIG.NAP.walk, TT.walk3, TT.walk4];
 function drawPaths(ctx, t) {
   PATHS.forEach((sp, i) => {
     const p = Math.min(1, seg(t, PATH_TIMES[i][0], PATH_TIMES[i][1]) + 0.08) * (t > PATH_TIMES[i][0] ? 1 : 0);
@@ -453,6 +472,13 @@ function drawBowlBack(ctx, t) {
 function drawBowlFront(ctx, t) {
   const p = seg(t, TT.bowl[0], TT.bowl[1]); if (p <= 0) return;
   const B = bowlPolys(); pencil(ctx, B.body, { seed: 'bowl_body', closed: true, p, fill: C.bowl, w: 4.5 });
+}
+function drawBed(ctx, t) {
+  const N = CONFIG.NAP, p = seg(t, N.walk[0] + 0.1, N.walk[0] + 0.7); if (p <= 0) return;
+  const b = N.bed;
+  pencil(ctx, ellipsePts(b.x, b.y + 22, 190, 52, 28), { seed: 'bed_base', closed: true, p, fill: C.bowl, w: 4.5 });
+  pencil(ctx, ellipsePts(b.x, b.y + 6, 168, 40, 28), { seed: 'bed_top', closed: true, p, fill: C.furShade, w: 4 });
+  [-90, -30, 40, 100].forEach((dx, i) => pencil(ctx, [[b.x + dx, b.y + 14], [b.x + dx + 14, b.y + 26]], { seed: 'bed_st' + i, w: 3, p, color: C.mask }));
 }
 function drawPlant(ctx, t) {
   const p = seg(t, TT.plant[0], TT.plant[1]); if (p <= 0) return;
@@ -523,6 +549,14 @@ function drawJero(ctx, J, t) {
     // 머리 위치
     const hd = J.headDown, hl = [lerp(88, 134, hd), lerp(-122, -52, hd)];
     headPos = T(hl[0], hl[1]); headRot = dir * (0.55 * hd) + J.rotate * dir * 0.4;
+  } else if (J.mode === 'nap') { // 웅크려 자는 자세 (식빵 자세)
+    const tail = tailPoly(-86, -26, 192, 150, 104, u => 3 * Math.sin(t * 2 - u), 16);
+    pencil(ctx, TP(furify(tail, () => 7, 23, 14)), { seed: 'j_tail', closed: true, fill: C.mask, w: 4 });
+    part(furify(ellipsePts(-8, -38, 92, 40, 30), () => 10, 5, 17), 'j_body', shade);
+    part(ellipsePts(-18, -62, 60, 20, 16), 'j_saddle', C.mask, { line: false, fa: 0.35 });
+    part(ellipsePts(-8, -26, 78, 20, 16, 0, 0.1, Math.PI - 0.1), 'j_belly', C.white, { line: false, fa: 0.95 });
+    part(ellipsePts(40, -10, 24, 12, 12), 'j_napawL', C.white); part(ellipsePts(88, -9, 24, 12, 12), 'j_napawR', C.white);
+    headPos = T(66, -48); headRot = 0.12;
   } else { // front
     const up = J.up, ry = 76 * (1 + 0.12 * up), rx = 58 * (1 - 0.1 * up), cy = -ry + 4;
     const tail = tailPoly(46, -16, lerp(12, 20, up), lerp(72, 40, up), 118, sway, 17);
@@ -579,7 +613,9 @@ function drawJero(ctx, J, t) {
   [-1, 1].forEach(sg => {
     const ex = sg * 22, ey = -4;
     const open = E === 'open' ? blink : E === 'wide' ? Math.min(1, blink * 1.1) : E === 'squint' ? 0.3 * (blink > 0.5 ? 1 : 0.3) : 0;
-    if (E === 'happy' || (open < 0.14)) {
+    if (E === 'sleep') {
+      pencil(ctx, HP([[ex - 12, ey - 1], [ex - 5, ey + 6], [ex + 5, ey + 6], [ex + 12, ey - 1]]), { seed: 'j_eyes' + sg, w: 4.5 });
+    } else if (E === 'happy' || (open < 0.14)) {
       const lift = E === 'happy' ? 10 : 0;
       pencil(ctx, HP([[ex - 12, ey + 4], [ex - 5, ey - lift - 2], [ex + 5, ey - lift - 2], [ex + 12, ey + 4]]), { seed: 'j_eyec' + sg, w: 4.5 });
     } else {
@@ -642,7 +678,7 @@ function girlState(t) {
   else if (t < TT.orbit[1]) { g.jump = girlBounceH(t); g.stride = 6 * Math.sin(t * 8); g.wand = true; const th = ORB.w * (t - TT.orbit[0]); g.wandDir = Math.cos(th) > 0 ? -1 : 1; }
   else {
     g.hug = t < TT.hugHold[1] ? smooth(seg(t, TT.leap[0], TT.leap[1])) : 1 - smooth(seg(t, TT.hugHold[1], TT.hopOut[1]));
-    if (t > TT.hopOut[1]) g.armA = Math.sin((t - 21.2) * 4);
+    if (t > TT.hopOut[1]) g.armA = Math.sin((t - TT.hopOut[1]) * 4);
     if (t > TT.girlOut[0]) { const u = seg(t, TT.girlOut[0], TT.girlOut[1]); g.fx = lerp(HUGSPOT[0], 1500, u); g.stride = 14 * Math.sin(t * 11) * smooth(u * 3); g.armA = 0; }
   }
   g.fy -= g.jump;
@@ -686,7 +722,7 @@ function jeroState(t) {
     if (t < TT.hopDown[1] + 0.3) { J.walk = 0; landSq(J, t, TT.hopDown[1]); J.fy = p.y; }
     return J;
   }
-  if (t < TT.walk3[0]) {      // 간식 먹기
+  if (t < TT.eatEnd) {      // 간식 먹기
     const end = PATHS[1].pts[PATHS[1].pts.length - 1]; stand(J, end, 1);
     const hd = smooth(seg(t, TT.dive[0], TT.dive[1])) * (1 - smooth(seg(t, TT.chew[1], TT.chew[1] + 0.25)));
     J.headDown = hd; J.tailUp = smooth(seg(t, TT.sniff[0], TT.sniff[0] + 0.3)); J.wag = 0.55;
@@ -698,17 +734,26 @@ function jeroState(t) {
     if (t >= TT.hopDown[1] && t < TT.sniff[0]) { J.mode = 'side'; }
     return J;
   }
-  if (t < TT.walk3[1]) { const u = smooth(seg(t, TT.walk3[0], TT.walk3[1])), p = posAt(PATHS[2], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[2], u); J.walk = 1; J.ph = t * 11; return J; }
+  if (t < TT.walk3[0]) {      // ③ 낮잠 자기
+    const N = CONFIG.NAP, bed = PATHS[2].pts[PATHS[2].pts.length - 1];
+    if (t < N.walk[1]) { const u = smooth(seg(t, N.walk[0], N.walk[1])), p = posAt(PATHS[2], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[2], u); J.walk = 1; J.ph = t * 11; return J; }
+    J.fx = bed[0]; J.fy = bed[1]; J.gy = bed[1];
+    if (t < N.sit[1]) { J.mode = 'nap'; J.eyes = 'squint'; J.sq = 0.16 * Math.sin(Math.PI * seg(t, N.sit[0], N.sit[1])); return J; }   // 웅크리며 눕기
+    if (t < N.wake[0]) { J.mode = 'nap'; J.eyes = 'sleep'; J.sq = -0.035 * Math.sin(t * 2.4); J.wag = 0.25; return J; }
+    if (t < N.wake[1]) { const u = seg(t, N.wake[0], N.wake[1]); J.mode = 'nap'; J.eyes = u < 0.45 ? 'sleep' : 'open'; J.sq = -0.05 * Math.sin(u * 6); return J; }
+    J.mode = 'front'; J.up = 0; J.eyes = 'open'; J.look = [0, 0.1]; return J;
+  }
+  if (t < TT.walk3[1]) { const u = smooth(seg(t, TT.walk3[0], TT.walk3[1])), p = posAt(PATHS[3], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[2], u); J.walk = 1; J.ph = t * 11; return J; }
   if (t < TT.walk4[0]) {      // 일어서서 놀아 주세요
-    const p = PATHS[2].pts[PATHS[2].pts.length - 1]; J.mode = 'front'; J.fx = p[0]; J.fy = p[1];
+    const p = PATHS[3].pts[PATHS[3].pts.length - 1]; J.mode = 'front'; J.fx = p[0]; J.fy = p[1];
     const up = smooth(seg(t, TT.standUp[0], TT.standUp[1])) * (1 - smooth(seg(t, TT.sitDown[0], TT.sitDown[1])));
     J.up = up; J.eyes = 'wide'; J.look = [0, -1]; J.wag = 1;
     if (t >= TT.standUp[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)), ph = Math.sin(t * 10); J.sq = 0.05 * k * ph; J.fy -= k * 9 * (0.5 + 0.5 * ph); }   // 몸이 위아래로 들썩
     if (t >= TT.standUp[1] && t < TT.wave[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)) * (1 - smooth(seg(t, TT.wave[1] - 0.2, TT.wave[1] + 0.2))); J.beg = k; J.begY = -32 * Math.sin(t * 10) * k; }   // 두 발을 모아 앞으로 내밀고 아래위로
     return J;
   }
-  if (t < TT.walk4[1]) { const u = smooth(seg(t, TT.walk4[0], TT.walk4[1])), p = posAt(PATHS[3], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[3], u); J.walk = 1; J.ph = t * 11; return J; }
-  if (t < TT.orbit[0]) { const p = PATHS[3].pts[PATHS[3].pts.length - 1]; J.fx = p[0]; J.fy = p[1]; J.eyes = 'wide'; J.look = [1, -0.4]; return J; }
+  if (t < TT.walk4[1]) { const u = smooth(seg(t, TT.walk4[0], TT.walk4[1])), p = posAt(PATHS[4], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[3], u); J.walk = 1; J.ph = t * 11; return J; }
+  if (t < TT.orbit[0]) { const p = PATHS[4].pts[PATHS[4].pts.length - 1]; J.fx = p[0]; J.fy = p[1]; J.eyes = 'wide'; J.look = [1, -0.4]; return J; }
   if (t < TT.orbit[1]) {
     const th = ORB.w * (t - TT.orbit[0]) + Math.PI, p = orbPos(th), hh = jeroBounceH(t), dx = -ORB.rx * Math.sin(th);
     J.mode = 'side'; J.fx = p[0]; J.gy = p[1]; J.fy = p[1] - hh; J.dir = dx >= 0 ? 1 : -1;
@@ -724,7 +769,7 @@ function jeroState(t) {
     J.up = 0.55; J.eyes = 'wide'; J.hug = u * 0.6; J.look = [0, -0.3]; J.shadow = 0; return J;
   }
   if (t < TT.hopOut[0]) {
-    const g = girlState(t), lift = 24 * smooth(seg(t, TT.hugHold[0], 20.0)), chest = [g.fx, g.fy - HUGY - lift];
+    const g = girlState(t), lift = 24 * smooth(seg(t, TT.hugHold[0], TT.hugHold[1] - 0.7)), chest = [g.fx, g.fy - HUGY - lift];
     J.mode = 'front'; J.hs = 0.62; J.fx = chest[0]; J.fy = chest[1] + 53; J.up = 0.5; J.hug = 1; J.eyes = 'happy'; J.mouth = 'smile'; J.shadow = 0; J.sq = 0.03 * Math.sin(t * 8); return J;
   }
   if (t < TT.hopOut[1]) {
@@ -794,7 +839,7 @@ function drawGirl(ctx, g, t, front) {
 const DUST = [
   [1.5, 'j'], [4.45, 'j'], [5.65, 'j'], [6.4, 'j'], [7.15, 'j'],
   [16.6, 'j'], [17.4, 'j'], [18.2, 'j'], [19.0, 'j'], [16.2, 'g'], [17.0, 'g'], [17.8, 'g'], [18.6, 'g'], [21.2, 'j']
-];
+].map(d => [d[0] > CONFIG.NAP.from ? d[0] + CONFIG.NAP.len : d[0], d[1]]);
 function drawDust(ctx, t) {
   DUST.forEach((d, i) => {
     const age = t - d[0]; if (age < 0 || age > 0.45) return;
@@ -825,10 +870,19 @@ function drawFx(ctx, t) {
     const u = age / 1.5, x = 600 + i * 46 + Math.sin(u * 6 + i) * 10, y = 1770 - 120 * u;
     drawHeart(ctx, x, y, 1.1 + i * 0.15, 'eh' + i, Math.sin(Math.PI * Math.min(1, u * 1.1)) * 1);
   });
-  // ③ 말풍선 낙서
+  // 낮잠: 떠오르는 Z
+  { const N = CONFIG.NAP;
+    if (t >= N.sleep[0] + 0.2 && t < N.wake[0] + 0.3) {
+      const j = jeroState(Math.min(t, N.wake[0] - 0.01));
+      for (let i = 0; i < 3; i++) {
+        const age = ((t - N.sleep[0] + i * 0.6) % 1.8 + 1.8) % 1.8, u = age / 1.8, sz = 12 + 9 * u, x = j.fx + 45 - u * 75, y = j.fy - 95 - u * 125, a = Math.sin(Math.PI * u) * (t > N.wake[0] ? 1 - (t - N.wake[0]) / 0.3 : 1);
+        pencil(ctx, [[x - sz, y - sz], [x + sz, y - sz], [x - sz, y + sz], [x + sz, y + sz]], { seed: 'zz' + i, w: 4, a, step: 12 });
+      }
+    } }
+  // ③→④ 말풍선 낙서
   if (t >= TT.bubbles[0] && t < TT.bubbles[1] + 0.3) {
-    const base = PATHS[2].pts[PATHS[2].pts.length - 1], fade = 1 - seg(t, TT.bubbles[1] - 0.2, TT.bubbles[1] + 0.2);
-    [[12.4, 'heart', 150, -330], [12.8, 'paw', -140, -390], [13.2, 'heart', 70, -470]].forEach((b, i) => {
+    const base = PATHS[3].pts[PATHS[3].pts.length - 1], fade = 1 - seg(t, TT.bubbles[1] - 0.2, TT.bubbles[1] + 0.2);
+    [[TT.bubbles[0], 'heart', 110, -330], [TT.bubbles[0] + 0.4, 'paw', -150, -390], [TT.bubbles[0] + 0.8, 'heart', 40, -470]].forEach((b, i) => {
       const age = t - b[0]; if (age < 0) return;
       const sc = easeOutBack(age / 0.3) , x = base[0] + b[2], y = base[1] + b[3] - 12 * age, r = 40 * sc;
       pencil(ctx, ellipsePts(x, y, r, r * 0.86, 20), { seed: 'bub' + i, closed: true, fill: C.white, fa: 0.7, w: 3.5, a: fade });
@@ -863,11 +917,12 @@ function scene(ctx, t) {
   drawTower(ctx, t);
   drawPlant(ctx, t);
   drawBowlBack(ctx, t);
+  drawBed(ctx, t);
   const g = girlState(t), J = jeroState(t), hugging = t >= TT.leap[0] && t < TT.hopOut[1];
   const jBehind = t >= TT.orbit[0] && t < TT.orbit[1] && (J.gy === null ? J.fy : J.gy) < g.fy + g.jump;   // 깊이 순서
   if (jBehind) { drawJero(ctx, J, t); drawGirl(ctx, g, t, false); } else { drawGirl(ctx, g, t, false); drawJero(ctx, J, t); }
   drawBowlFront(ctx, t);
-  if (hugging) { g.hugLift = (t >= TT.hugHold[0] ? 24 * smooth(seg(t, TT.hugHold[0], 20.0)) : 0); drawGirl(ctx, g, t, true); }
+  if (hugging) { g.hugLift = (t >= TT.hugHold[0] ? 24 * smooth(seg(t, TT.hugHold[0], TT.hugHold[1] - 0.7)) : 0); drawGirl(ctx, g, t, true); }
   drawFx(ctx, t);
   drawChecks(ctx, t);
   drawVignette(ctx);
@@ -894,6 +949,7 @@ window.render = render;
    재생 막대 · 창 크기에 맞추기
    ===================================================================== */
 const playBtn = document.getElementById('play'), seek = document.getElementById('seek'), bar = document.getElementById('bar');
+seek.max = CONFIG.DURATION;
 let playing = true, clock = 0, last = performance.now();
 function fit() {
   const availH = innerHeight - 52, s = Math.min(innerWidth / CONFIG.W, availH / CONFIG.H);
