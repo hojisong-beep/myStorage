@@ -28,7 +28,7 @@
    ===================================================================== */
 const CONFIG = {
   W: 1080, H: 1920, DURATION: 24,
-  PAPER: { w: 1200, h: 4600, grid: 40, major: 200 },
+  PAPER: { w: 1200, h: 5020, grid: 40, major: 200 },
   FONT: '700 {S}px Gaegu, "Nanum Pen Script", "Malgun Gothic", cursive',
   CHARS_PER_SEC: 10,
 
@@ -54,11 +54,11 @@ const CONFIG = {
   LABELS: [
     { n: 1, str: '캣타워에서 놀기', x: 430, y: 1375, size: 70, t: 3.0 },
     { n: 2, str: '맛있는 간식',     x: 760, y: 2235, size: 74, t: 7.0 },
-    { n: 3, str: '놀아 주세요!',    x: 450, y: 3122, size: 74, t: 11.0 },
-    { n: 4, str: '같이 뛰어 놀기',  x: 812, y: 3912, size: 66, t: 15.0 }
+    { n: 3, str: '놀아 주세요!',    x: 450, y: 3542, size: 74, t: 11.0 },
+    { n: 4, str: '같이 뛰어 놀기',  x: 812, y: 4332, size: 66, t: 15.0 }
   ],
-  END:  { str: '제로',        x: 620, y: 4340, size: 110, t: 21.5 },
-  SIGN: { str: '우리집 고양이', x: 620, y: 4418, size: 34,  t: 22.2 },
+  END:  { str: '제로',        x: 620, y: 4760, size: 110, t: 21.5 },
+  SIGN: { str: '우리집 고양이', x: 620, y: 4838, size: 34,  t: 22.2 },
 
   /* 카메라: t = 도착 시각, x,y = 바라보는 종이 좌표, z = 확대,
      m = 이동 방식 → slow(부드럽게) / whoosh(휙, 짧고 빠르게 + 모션 블러) / accel(가속) / snap(확 줌인) */
@@ -69,16 +69,16 @@ const CONFIG = {
     { t: 6.4,  x: 450, y: 1070, z: 1.24, m: 'slow' },
     { t: 6.9,  x: 640, y: 1890, z: 1.20, m: 'accel' },
     { t: 10.2, x: 650, y: 1930, z: 1.31, m: 'slow' },
-    { t: 10.7,  x: 560, y: 2440, z: 1.20, m: 'whoosh' },     // ③ 낮잠 자기
-    { t: 14.1,  x: 565, y: 2445, z: 1.30, m: 'slow' },
-    { t: 14.9,  x: 450, y: 2790, z: 1.15, m: 'whoosh' },     // ④ 놀아 주세요 (아래 카메라는 NAP 이후 실제 시각)
-    { t: 18.4,  x: 445, y: 2805, z: 1.23, m: 'slow' },
-    { t: 18.8,  x: 620, y: 3790, z: 1.06, m: 'whoosh' },
-    { t: 24.2,  x: 622, y: 3800, z: 1.13, m: 'slow' },
-    { t: 24.6,  x: 620, y: 2240, z: 0.43, m: 'accel' },
-    { t: 25.4,  x: 620, y: 2230, z: 0.45, m: 'slow' },
-    { t: 25.7,  x: 620, y: 4000, z: 1.07, m: 'snap' },
-    { t: 28.2,  x: 620, y: 4010, z: 1.12, m: 'slow' }
+    { t: 10.7,  x: 560, y: 2860, z: 1.20, m: 'whoosh' },     // ③ 낮잠 자기
+    { t: 14.1,  x: 565, y: 2865, z: 1.30, m: 'slow' },
+    { t: 14.9,  x: 450, y: 3210, z: 1.15, m: 'whoosh' },     // ④ 놀아 주세요 (아래 카메라는 NAP 이후 실제 시각)
+    { t: 18.4,  x: 445, y: 3225, z: 1.23, m: 'slow' },
+    { t: 18.8,  x: 620, y: 4210, z: 1.06, m: 'whoosh' },
+    { t: 24.2,  x: 622, y: 4220, z: 1.13, m: 'slow' },
+    { t: 24.6,  x: 620, y: 2510, z: 0.38, m: 'accel' },
+    { t: 25.4,  x: 620, y: 2500, z: 0.40, m: 'slow' },
+    { t: 25.7,  x: 620, y: 4420, z: 1.07, m: 'snap' },
+    { t: 28.2,  x: 620, y: 4430, z: 1.12, m: 'slow' }
   ],
   WHOOSH_SEC: 0.45, SNAP_SEC: 0.22,
 
@@ -104,8 +104,8 @@ const CONFIG = {
 
   /* 낮잠 자기 단계(②와 ③ 사이): 이 시간만큼 이후 장면이 뒤로 밀립니다 (전체 24초 → 28.2초) */
   NAP: { from: 10.7, len: 4.2, walk: [10.7, 11.9], sit: [11.9, 12.1], sleep: [12.1, 14.0], wake: [14.0, 14.5],
-         bed: { x: 545, y: 2420 },
-         label: { str: '낮잠 자기', x: 790, y: 2545, size: 70, t: 11.4 } }
+         bed: { x: 545, y: 2840 },
+         label: { str: '낮잠 자기', x: 790, y: 2965, size: 70, t: 11.4 } }
 };
 /* 시간표 밀기: 낮잠 단계를 끼워 넣기 위해 10.7초 이후 시각(카메라 제외)을 모두 NAP.len 만큼 뒤로 */
 (function shiftTimeline() {
@@ -413,9 +413,9 @@ function drawChecks(ctx, t) {
 const PATHS = [
   smoothPath([[760, 395], [690, 560], [520, 700], [580, 860], [470, 1020], [400, 1285]]),
   smoothPath([[500, 1292], [430, 1450], [560, 1600], [480, 1760], [545, 1935]]),
-  smoothPath([[545, 1938], [640, 2090], [520, 2230], [610, 2330], [545, 2412]]),   // 방석으로
-  smoothPath([[545, 2415], [600, 2560], [480, 2720], [560, 2850], [450, 2990]]),
-  smoothPath([[450, 2995], [380, 3250], [520, 3480], [430, 3680], [410, 3860]])
+  smoothPath([[545, 1938], [650, 2150], [500, 2380], [620, 2600], [545, 2832]]),   // 방석으로
+  smoothPath([[545, 2835], [600, 2980], [480, 3140], [560, 3270], [450, 3410]]),
+  smoothPath([[450, 3415], [380, 3670], [520, 3900], [430, 4100], [410, 4280]])
 ];
 const PATH_TIMES = [TT.walk1, TT.walk2, CONFIG.NAP.walk, TT.walk3, TT.walk4];
 function drawPaths(ctx, t) {
@@ -659,11 +659,11 @@ function crouch(J, t, t0) { if (t >= t0 - 0.14 && t < t0) J.sq = 0.24 * smooth((
 function landSq(J, t, tl) { const d = t - tl; if (d >= 0 && d < 0.5) J.sq += 0.3 * Math.exp(-d * 8) * Math.cos(d * 13); }
 function stand(J, p, dir) { J.mode = 'side'; J.fx = p[0]; J.fy = p[1]; J.dir = dir; J.walk = 0; }
 
-const ORB = { cx: 650, cy: 3860, rx: 240, ry: 38, w: 2.45 };
+const ORB = { cx: 650, cy: 4280, rx: 240, ry: 38, w: 2.45 };
 const orbPos = (th) => [ORB.cx + ORB.rx * Math.cos(th), ORB.cy + ORB.ry * Math.sin(th)];
 function jeroBounceH(t) { return t < TT.orbit[0] ? 0 : 90 * Math.abs(Math.sin(Math.PI * (t - TT.orbit[0]) / 0.8)); }
 function girlBounceH(t) { return t < TT.orbit[0] + 0.4 ? 0 : 66 * Math.abs(Math.sin(Math.PI * (t - TT.orbit[0] - 0.4) / 0.8)); }
-const HUGSPOT = [650, 3885], HUGY = 113;   // 안겼을 때 가슴 높이(발 기준)
+const HUGSPOT = [650, 4305], HUGY = 113;   // 안겼을 때 가슴 높이(발 기준)
 function girlBase(t) {  // 소녀 발 위치 (점프 제외)
   if (t < TT.girlIn[1]) { const u = smooth(seg(t, TT.girlIn[0], TT.girlIn[1])); return [lerp(1280, orbPos(0)[0], u), ORB.cy]; }
   if (t < TT.orbit[1]) return orbPos(ORB.w * (t - TT.orbit[0]));
@@ -773,10 +773,10 @@ function jeroState(t) {
     J.mode = 'front'; J.hs = 0.62; J.fx = chest[0]; J.fy = chest[1] + 53; J.up = 0.5; J.hug = 1; J.eyes = 'happy'; J.mouth = 'smile'; J.shadow = 0; J.sq = 0.03 * Math.sin(t * 8); return J;
   }
   if (t < TT.hopOut[1]) {
-    const g = girlState(t), from = [g.fx, g.fy - HUGY + 53 - 24], u = seg(t, TT.hopOut[0], TT.hopOut[1]), to = [620, 4252];
+    const g = girlState(t), from = [g.fx, g.fy - HUGY + 53 - 24], u = seg(t, TT.hopOut[0], TT.hopOut[1]), to = [620, 4672];
     J.mode = 'front'; J.hs = lerp(0.62, 1, smooth(u)); J.fx = lerp(from[0], to[0], u); J.gy = lerp(from[1] + 40, to[1], u); J.fy = lerp(from[1], to[1], u) - 150 * 4 * u * (1 - u); J.up = 0.4 * (1 - u); J.eyes = 'open'; J.hug = 1 - u; J.shadow = u; return J;
   }
-  J.mode = 'front'; J.fx = 620; J.fy = 4252; J.sq = 0; J.look = [0, 0.1];
+  J.mode = 'front'; J.fx = 620; J.fy = 4672; J.sq = 0; J.look = [0, 0.1];
   { const d = t - TT.hopOut[1]; if (d < 0.5) J.sq = 0.26 * Math.exp(-d * 8) * Math.cos(d * 13); }
   return J;
 }
