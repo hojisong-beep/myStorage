@@ -542,7 +542,7 @@ function drawJero(ctx, J, t) {
       let end = [lerp(base[0], hug[0], J.hug) + adj[0] * sgn, lerp(base[1], hug[1], J.hug) + adj[1]];
       return [sh, end];
     };
-    [[-1, J.armL, 'j_armL'], [1, J.armR, 'j_armR']].forEach(([sg, adj, id]) => { const [sh, end] = arm(sg, adj); part(bentLimb(sh, end, 40, 38, sg, 14, 11, 9.5), id, C.white); part(ellipsePts(end[0], end[1] + 2, 12, 9, 10), id + 'p', C.white); });
+    [[-1, J.armL, 'j_armL'], [1, J.armR, 'j_armR']].forEach(([sg, adj, id]) => { const [sh, end] = arm(sg, adj); part(bentLimb(sh, end, 40, 38, sg, 14, 11, 9.5), id, C.white); part(ellipsePts(end[0], end[1] + 2, 14, 10.5, 10), id + 'p', C.white); });
     headPos = T(0, cy - ry - 12); headRot = 0;
   }
 
@@ -699,8 +699,8 @@ function jeroState(t) {
     const p = PATHS[2].pts[PATHS[2].pts.length - 1]; J.mode = 'front'; J.fx = p[0]; J.fy = p[1];
     const up = smooth(seg(t, TT.standUp[0], TT.standUp[1])) * (1 - smooth(seg(t, TT.sitDown[0], TT.sitDown[1])));
     J.up = up; J.eyes = 'wide'; J.look = [0, -1]; J.wag = 1;
-    if (t >= TT.standUp[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)), ph = Math.sin(t * 9); J.sq = 0.05 * k * ph; J.fy -= k * 9 * (0.5 + 0.5 * ph); }   // 몸이 위아래로 들썩
-    if (t >= TT.standUp[1] && t < TT.wave[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)) * (1 - smooth(seg(t, TT.wave[1] - 0.2, TT.wave[1] + 0.2))), s2 = Math.sin(t * 9); J.armL = [-4 * s2, -24 * s2 * k - 6 * k]; J.armR = [-4 * s2, -24 * s2 * k - 6 * k]; }   // 두 발을 동시에(강아지처럼)
+    if (t >= TT.standUp[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)), ph = Math.sin(t * 10); J.sq = 0.05 * k * ph; J.fy -= k * 9 * (0.5 + 0.5 * ph); }   // 몸이 위아래로 들썩
+    if (t >= TT.standUp[1] && t < TT.wave[1]) { const k = smooth(seg(t, TT.standUp[1], TT.standUp[1] + 0.3)) * (1 - smooth(seg(t, TT.wave[1] - 0.2, TT.wave[1] + 0.2))), s2 = Math.sin(t * 10); J.armL = [(14 - 8 * s2) * k, (-44 * s2 - 14) * k]; J.armR = [(14 - 8 * s2) * k, (-44 * s2 - 14) * k]; }   // 두 발을 동시에(강아지처럼)
     return J;
   }
   if (t < TT.walk4[1]) { const u = smooth(seg(t, TT.walk4[0], TT.walk4[1])), p = posAt(PATHS[3], u); J.mode = 'side'; J.fx = p.x; J.fy = p.y - Math.abs(Math.sin(t * 11)) * 4; J.gy = p.y; J.dir = dirAt(PATHS[3], u); J.walk = 1; J.ph = t * 11; return J; }
