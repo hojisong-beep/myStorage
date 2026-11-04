@@ -15,7 +15,7 @@ Spec file (JSON):
 Each result is saved as assets/raw/<id>.png. Items of kind "icon" are then
 passed through tools/postprocess.py (background removal, 128px).
 
-Env: XAI_API_KEY (required), GROK_IMAGE_MODEL (default grok-imagine-image).
+Env: XAI_API_KEY (optional if a host secret for api.x.ai is set), GROK_IMAGE_MODEL (default grok-imagine-image).
 Standard library + Pillow only.
 """
 import base64
@@ -45,13 +45,16 @@ def ctx():
 
 
 def call(path, body=None):
+    # The key comes from XAI_API_KEY if set. Otherwise no Authorization header
+    # is sent and the environment's host-scoped secret for api.x.ai supplies it.
+    headers = {"Content-Type": "application/json"}
     key = os.environ.get("XAI_API_KEY")
-    if not key:
-        sys.exit("XAI_API_KEY is not set.")
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     req = urllib.request.Request(
         API + path,
         data=json.dumps(body).encode() if body is not None else None,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, context=ctx(), timeout=300) as r:
