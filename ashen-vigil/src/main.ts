@@ -669,7 +669,7 @@ const combat = setupCombat({
   faceHero: (dir) => faceToward(dir),
 });
 setSkillAction(4, () => combat.drinkPotion());
-if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__combat = combat.debug;
+if (location.search.includes('debug')) Object.assign(window as unknown as Record<string, unknown>, { __combat: combat.debug, __renderer: renderer });
 
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
