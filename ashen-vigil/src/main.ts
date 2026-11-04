@@ -324,60 +324,69 @@ const hero = new THREE.Group();                   // sits at the feet; never rot
 const heroPivot = new THREE.Group();              // leans back to face the camera, pivot at the feet
 heroPivot.rotation.set(PROP_TILT, PROP_YAW, 0, 'YXZ');
 hero.add(heroPivot);
-const walkUniforms = { uWalk: { value: 0 }, uPhase: { value: 0 } };
-function heroMat(id: string) {
-  const tex = texLoader.load(`assets/props/${id}.png`);
+const walkUniforms = { uWalk: { value: 0 }, uPhase: { value: 0 }, uCloak: { value: 0 }, uTime: { value: 0 } };
+// legs: the painted stills get the scissoring legs; the walk sheets already
+// contain real leg motion, so they only get the idle cloak flutter.
+function heroMaterial(tex: THREE.Texture, legs: boolean) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
   const m = new THREE.MeshStandardMaterial({
     map: tex, alphaTest: 0.45, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide,
     emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
   });
+  if (legs) m.defines = { HERO_LEGS: '' };
   m.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, walkUniforms);
     sh.vertexShader = sh.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uWalk;\nuniform float uPhase;')
+      .replace('#include <common>', '#include <common>\nuniform float uWalk;\nuniform float uPhase;\nuniform float uCloak;\nuniform float uTime;')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
       {
         // uv.y: 0 at the feet, 1 at the top. side: -1 left half, +1 right half, 0 at the centre (no tear).
         float h = uv.y;
         float side = clamp((uv.x - 0.5) * 5.0, -1.0, 1.0);
+        float cloak = (1.0 - smoothstep(0.05, 0.62, h)) * abs(side);
+        #ifdef HERO_LEGS
         float legs = 1.0 - smoothstep(0.0, 0.36, h);          // fades out by the hips
         float feet = 1.0 - smoothstep(0.0, 0.14, h);
         float sw = sin(uPhase);
         transformed.x += side * sw * 0.085 * legs * uWalk;              // legs scissor
         transformed.y += max(0.0, -side * sw) * 0.06 * feet * uWalk;   // the swinging foot lifts
-        float cloak = (1.0 - smoothstep(0.05, 0.62, h)) * abs(side);
         transformed.x += sin(uPhase - 1.3) * 0.03 * cloak * uWalk;      // cloak trails the stride
+        #endif
+        // idle flutter: a slow wave running down the cloak hem
+        transformed.x += sin(uTime * 2.1 - h * 6.0) * uCloak * cloak;
       }`);
   };
   return m;
 }
+const heroMat = (id: string) => heroMaterial(texLoader.load(`assets/props/${id}.png`), true);
 // Walk sheets (tools/walksheet.py, from Grok image-to-video): one row of
 // frames, played by distance travelled. Until they load, or if they fail
 // to, the painted stills with the vertex-shader walk above are used.
-interface WalkSheet { mat: THREE.MeshStandardMaterial; tex: THREE.Texture; frames: number; idle: number; aspect: number }
-interface HeroView { mat: THREE.MeshStandardMaterial; aspect: number; sheet?: WalkSheet }
-const HERO_VIEWS: Record<'front' | 'back', HeroView> = { front: { mat: heroMat('hero_front'), aspect: 0.54 }, back: { mat: heroMat('hero_back'), aspect: 0.571 } };
+type UV = [number, number];   // across the image, and up from its bottom
+interface WalkSheet { mat: THREE.MeshStandardMaterial; tex: THREE.Texture; frames: number; idle: number; aspect: number; hands: UV[] }
+interface HeroView { mat: THREE.MeshStandardMaterial; aspect: number; hand: UV; sheet?: WalkSheet }
+const HERO_VIEWS: Record<'front' | 'back', HeroView> = {
+  front: { mat: heroMat('hero_front'), aspect: 0.54, hand: [0.9, 0.61] },
+  back: { mat: heroMat('hero_back'), aspect: 0.571, hand: [0.07, 0.63] },
+};
 const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 6, 12).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
 heroPivot.add(heroSprite);
-fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number }>) => {
-  HERO_VIEWS.front.aspect = meta.hero_front?.aspect ?? HERO_VIEWS.front.aspect;
-  HERO_VIEWS.back.aspect = meta.hero_back?.aspect ?? HERO_VIEWS.back.aspect;
+fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number; hand?: UV }>) => {
+  for (const view of ['front', 'back'] as const) {
+    const m = meta[`hero_${view}`];
+    if (m) { HERO_VIEWS[view].aspect = m.aspect; if (m.hand) HERO_VIEWS[view].hand = m.hand; }
+  }
 });
 for (const view of ['front', 'back'] as const) {
   fetch(`assets/props/walk_${view}.json`)
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
-    .then((meta: { frames: number; idle: number; aspect: number }) => {
+    .then((meta: { frames: number; idle: number; aspect: number; hand?: UV[] }) => {
       texLoader.load(`assets/props/walk_${view}.png`, (tex) => {
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
         tex.repeat.set(1 / meta.frames, 1);
-        const mat = new THREE.MeshStandardMaterial({
-          map: tex, alphaTest: 0.45, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide,
-          emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
-        });
-        HERO_VIEWS[view].sheet = { mat, tex, frames: meta.frames, idle: meta.idle, aspect: meta.aspect };
+        const mat = heroMaterial(tex, false);
+        const hands = meta.hand ?? Array.from({ length: meta.frames }, () => HERO_VIEWS[view].hand);
+        HERO_VIEWS[view].sheet = { mat, tex, frames: meta.frames, idle: meta.idle, aspect: meta.aspect, hands };
       });
     })
     .catch(() => { /* keep the painted fallback */ });
@@ -402,6 +411,40 @@ function puffAt(x: number, z: number) {
   p.s.position.set(x, 0.15, z);
   p.s.visible = true;
 }
+
+// Live ember in the off hand: the painted flame is static, so a small
+// procedural flame (the brazier flame texture, additive) sits on the hand
+// anchor of the current image/frame, with a flickering light and the odd
+// spark drifting up.
+const handFlames: THREE.Sprite[] = [0, 1].map((k) => {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: flameTex, color: new THREE.Color(1.0, 0.45 + k * 0.15, 0.12), blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+  }));
+  sp.renderOrder = 5;
+  scene.add(sp);
+  return sp;
+});
+const handGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: glowTex, color: new THREE.Color(1.2, 0.45, 0.12), blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.35, fog: false,
+}));
+handGlow.renderOrder = 5;
+handGlow.scale.set(0.9, 0.9, 1);
+scene.add(handGlow);
+const HAND_SPARKS = 10;
+const handSparkPos = new Float32Array(HAND_SPARKS * 3);
+const handSparkVel = new Float32Array(HAND_SPARKS * 3);
+const handSparkLife = new Float32Array(HAND_SPARKS);
+const handSparkGeo = new THREE.BufferGeometry();
+handSparkGeo.setAttribute('position', new THREE.BufferAttribute(handSparkPos, 3));
+const handSparks = new THREE.Points(handSparkGeo, new THREE.PointsMaterial({
+  color: new THREE.Color(1.6, 0.6, 0.18), size: 2.0 * pixelRatio, sizeAttenuation: false, map: glowTex, transparent: true,
+  blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+}));
+handSparks.frustumCulled = false;
+handSparks.renderOrder = 5;
+scene.add(handSparks);
+const handPos = new THREE.Vector3();
+let heroTime = 0;
 
 const heroAnim = { view: 'front' as 'front' | 'back', flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
 function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
@@ -429,25 +472,67 @@ function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
   const v = HERO_VIEWS[heroAnim.view];
   const bob = Math.abs(Math.sin(heroAnim.phase)) * heroAnim.walk;          // 0 at foot contact, 1 mid-stride
   const sh = v.sheet;
+  heroTime += dt;
+  const idle = 1 - heroAnim.walk;
+  const breath = Math.sin(heroTime * (Math.PI * 2 / 2.5)) * idle;          // ~2.5 s breathing cycle when standing
+  walkUniforms.uTime.value = heroTime;
+  walkUniforms.uCloak.value = 0.012 * idle;                                // gentle hem flutter, fades in as he stops
+  let hand: UV = v.hand;
   if (sh) {
     // One loop of the sheet = one full gait cycle = two footfalls (phase 2*PI).
     const f = heroAnim.walk > 0.05
       ? Math.floor((((heroAnim.phase / (Math.PI * 2)) % 1) + 1) % 1 * sh.frames) % sh.frames
       : sh.idle;
     sh.tex.offset.x = f / sh.frames;
+    hand = sh.hands[f] ?? hand;
     heroSprite.material = sh.mat;
     walkUniforms.uWalk.value = 0;                                           // the frames carry the motion
-    heroSprite.scale.set(HERO_H * sh.aspect * (heroAnim.flip ? -1 : 1), HERO_H, 1);
-    heroSprite.position.y = 0;
+    heroSprite.scale.set(HERO_H * sh.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 + 0.012 * breath), 1);
+    heroSprite.position.y = 0.012 * breath;
   } else {
     walkUniforms.uWalk.value = heroAnim.walk;
     walkUniforms.uPhase.value = heroAnim.phase;
     heroSprite.material = v.mat;
-    heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.015 * (1 - bob) * heroAnim.walk), 1);
-    heroSprite.position.y = bob * 0.07;
+    heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.015 * (1 - bob) * heroAnim.walk + 0.012 * breath), 1);
+    heroSprite.position.y = bob * 0.07 + 0.012 * breath;
   }
   heroSprite.rotation.z = heroAnim.lean;
-  heroShadow.scale.setScalar(1 - 0.12 * bob);                             // shadow tightens as the body rises
+  heroShadow.scale.setScalar(1 - 0.12 * bob - 0.02 * breath);              // tightens as the body rises / breathes in
+
+  // Ember hand: anchor (u, v) on the quad -> world, nudged toward the camera.
+  heroSprite.updateWorldMatrix(true, false);
+  handPos.set(hand[0] - 0.5, hand[1], 0.02);
+  heroSprite.localToWorld(handPos).addScaledVector(CAM_DIR, 0.2);
+  const n = 0.5 + 0.5 * Math.sin(heroTime * 13.1) * Math.sin(heroTime * 7.7 + 1.3) + 0.2 * Math.sin(heroTime * 29.0);
+  const flick = 0.8 + 0.3 * n;
+  handFlames.forEach((f, k) => {
+    const w = Math.sin(heroTime * (10 + k * 4.3) + k * 2.0);
+    const hgt = 0.34 + 0.1 * flick + 0.05 * w - k * 0.08;
+    f.scale.set(0.2 - k * 0.05 + 0.02 * Math.cos(heroTime * 9 + k), hgt, 1);
+    f.position.set(handPos.x + 0.02 * Math.sin(heroTime * 8 + k), handPos.y + hgt * 0.32, handPos.z);
+    f.material.rotation = 0.15 * w;
+  });
+  handGlow.position.copy(handPos);
+  handGlow.material.opacity = 0.22 + 0.15 * flick;
+  heroLight.position.copy(handPos).sub(hero.position).addScaledVector(CAM_DIR, 0.5);
+  heroLight.intensity = 14 * flick;
+  for (let i = 0; i < HAND_SPARKS; i++) {
+    handSparkLife[i] -= dt;
+    if (handSparkLife[i] <= 0) {
+      if (Math.random() > dt * 2.5) { handSparkPos[i * 3 + 1] = -100; continue; }   // about 2-3 sparks a second
+      handSparkPos[i * 3] = handPos.x + (Math.random() - 0.5) * 0.12;
+      handSparkPos[i * 3 + 1] = handPos.y + 0.1;
+      handSparkPos[i * 3 + 2] = handPos.z + (Math.random() - 0.5) * 0.12;
+      handSparkVel[i * 3] = (Math.random() - 0.5) * 0.3;
+      handSparkVel[i * 3 + 1] = 0.7 + Math.random() * 0.8;
+      handSparkVel[i * 3 + 2] = (Math.random() - 0.5) * 0.3;
+      handSparkLife[i] = 0.5 + Math.random() * 0.7;
+    }
+    handSparkPos[i * 3] += (handSparkVel[i * 3] + Math.sin(heroTime * 5 + i) * 0.2) * dt;
+    handSparkPos[i * 3 + 1] += handSparkVel[i * 3 + 1] * dt;
+    handSparkPos[i * 3 + 2] += handSparkVel[i * 3 + 2] * dt;
+  }
+  handSparkGeo.attributes.position.needsUpdate = true;
   for (const p of puffs) {
     if (p.life <= 0) continue;
     p.life -= dt;
