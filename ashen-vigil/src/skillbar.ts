@@ -1,15 +1,17 @@
 // Skill bar mock-up (M0): bottom-centre action slots with Grok skill icons.
-// Keys 1-6 flash the slot and start a cooldown sweep; no gameplay effect yet.
+// Keys 1-6 flash the slot and start a cooldown sweep. A slot can be given an
+// action (setSkillAction); returning false means it did nothing and the
+// cooldown does not start. Disabled slots are greyed out.
 
-interface Skill { icon: string | null; name: string; desc: string; cooldown: number }
+interface Skill { icon: string | null; name: string; desc: string; cooldown: number; disabled?: boolean }
 
 const SKILLS: Skill[] = [
   { icon: 'skill_ember_throw', name: '불씨 던지기', desc: '잿불 파편을 던져 불 피해 12~20', cooldown: 1.5 },
   { icon: 'skill_ash_armor', name: '재의 갑주', desc: '6초 동안 받는 피해 30% 감소', cooldown: 12 },
   { icon: null, name: '', desc: '', cooldown: 0 },
   { icon: null, name: '', desc: '', cooldown: 0 },
-  { icon: 'icon_potion_hp', name: '체력 물약', desc: '체력 60 회복', cooldown: 3 },
-  { icon: 'icon_potion_mp', name: '마나 물약', desc: '마나 40 회복', cooldown: 3 },
+  { icon: 'icon_potion_hp', name: '체력 물약', desc: '체력 60 회복', cooldown: 8 },
+  { icon: 'icon_potion_mp', name: '마나 물약', desc: '마나 40 회복 (아직 사용할 수 없음)', cooldown: 3, disabled: true },
 ];
 
 const css = `
@@ -22,9 +24,14 @@ const css = `
 #skills .s .k { position: absolute; left: 3px; top: 1px; font: 600 11px/1.2 system-ui, sans-serif; color: #e8d8c4; text-shadow: 0 1px 2px #000; }
 #skills .s .cd { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.65); pointer-events: none; }
 #skills .s.flash { outline: 2px solid #e8873a; }
+#skills .s.off img { filter: grayscale(1) brightness(0.45); }
 #skills .s:hover { border-color: #e8873a; }
 @media (max-width: 520px) { #skills .s { width: 40px; height: 40px; } #hud { display: none; } }
 `;
+
+const actions: (() => boolean)[] = [];
+/** Give slot i (0-based) an action; return false from it when nothing happened. */
+export function setSkillAction(i: number, fn: () => boolean) { actions[i] = fn; }
 
 export function setupSkillBar() {
   const style = document.createElement('style');
@@ -39,7 +46,7 @@ export function setupSkillBar() {
 
   const slots = SKILLS.map((sk, i) => {
     const el = document.createElement('div');
-    el.className = 's' + (sk.icon?.startsWith('icon_') ? ' pot' : '');
+    el.className = 's' + (sk.icon?.startsWith('icon_') ? ' pot' : '') + (sk.disabled ? ' off' : '');
     el.innerHTML = (sk.icon ? `<img src="assets/icons/${sk.icon}.png" alt="${sk.name}">` : '') + `<span class="k">${i + 1}</span>`;
     const cd = document.createElement('div');
     cd.className = 'cd';
@@ -61,7 +68,8 @@ export function setupSkillBar() {
 
   function use(i: number) {
     const s = slots[i];
-    if (!s || !s.sk.icon || performance.now() < s.until) return;
+    if (!s || !s.sk.icon || s.sk.disabled || performance.now() < s.until) return;
+    if (actions[i] && !actions[i]()) return;
     s.until = performance.now() + s.sk.cooldown * 1000;
     s.el.classList.add('flash');
     setTimeout(() => s.el.classList.remove('flash'), 150);

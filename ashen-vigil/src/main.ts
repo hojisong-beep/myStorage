@@ -6,7 +6,8 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { setupInventory } from './inventory';
-import { setupSkillBar } from './skillbar';
+import { setupSkillBar, setSkillAction } from './skillbar';
+import { setupCombat } from './combat';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
@@ -478,17 +479,18 @@ function startCrossfade() {
   ghostLife = GHOST_TIME;
 }
 const heroAnim = { view: 'front' as ViewId, faceRight: true, flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
+function faceToward(dir: THREE.Vector3) {
+  const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
+  // Screen angle above the horizontal: within about 35 degrees use the side
+  // view, otherwise front (moving down) or back (moving up). The band edge
+  // shifts by 5 degrees depending on the current view so it does not flicker.
+  const elev = Math.asin(Math.min(1, Math.abs(sy) / Math.hypot(sx, sy)));
+  const edge = THREE.MathUtils.degToRad(heroAnim.view === 'side' ? 40 : 30);
+  heroAnim.view = elev < edge ? 'side' : sy > 0 ? 'front' : 'back';
+  if (Math.abs(sx) > 0.15) heroAnim.faceRight = sx > 0;               // straight up/down keeps the last facing
+}
 function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
-  if (dir) {
-    const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
-    // Screen angle above the horizontal: within about 35 degrees use the side
-    // view, otherwise front (moving down) or back (moving up). The band edge
-    // shifts by 5 degrees depending on the current view so it does not flicker.
-    const elev = Math.asin(Math.min(1, Math.abs(sy) / Math.hypot(sx, sy)));
-    const edge = THREE.MathUtils.degToRad(heroAnim.view === 'side' ? 40 : 30);
-    heroAnim.view = elev < edge ? 'side' : sy > 0 ? 'front' : 'back';
-    if (Math.abs(sx) > 0.15) heroAnim.faceRight = sx > 0;               // straight up/down keeps the last facing
-  }
+  if (dir) faceToward(dir);
   heroAnim.flip = heroAnim.faceRight !== HERO_VIEWS[heroAnim.view].facesRight;
   if (heroAnim.view !== lastView || heroAnim.flip !== lastFlip) startCrossfade();
   lastView = heroAnim.view;
@@ -627,25 +629,53 @@ const pointer = new THREE.Vector2();
 const target = new THREE.Vector3();
 let moving = false;
 let mouseDown = false;
-function pick(ev: PointerEvent) {
+function groundAt(ev: PointerEvent) {
   pointer.set((ev.clientX / window.innerWidth) * 2 - 1, -(ev.clientY / window.innerHeight) * 2 + 1);
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObject(pickPlane)[0];
-  if (!hit) return;
-  const lim = half - 1;
-  target.set(THREE.MathUtils.clamp(hit.point.x, -lim, lim), 0, THREE.MathUtils.clamp(hit.point.z, -lim, lim));
-  moving = true;
-  marker.position.set(target.x, 0.02, target.z);
-  (marker.material as THREE.MeshBasicMaterial).opacity = 1;
+  return raycaster.intersectObject(pickPlane)[0]?.point ?? null;
 }
-renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 0) { mouseDown = true; pick(e); } });
-renderer.domElement.addEventListener('pointermove', (e) => { if (mouseDown) pick(e); });
+function moveTo(p: THREE.Vector3, showMarker: boolean) {
+  const lim = half - 1;
+  target.set(THREE.MathUtils.clamp(p.x, -lim, lim), 0, THREE.MathUtils.clamp(p.z, -lim, lim));
+  moving = true;
+  if (showMarker) {
+    marker.position.set(target.x, 0.02, target.z);
+    (marker.material as THREE.MeshBasicMaterial).opacity = 1;
+  }
+}
+// Click: a ghoul -> attack it (walk into range, then swing); the floor -> walk.
+// Holding the button keeps attacking the same ghoul, or keeps steering the walk.
+function pick(ev: PointerEvent, first: boolean) {
+  if (combat.isDead()) return;
+  const ground = groundAt(ev);
+  if (first) {
+    const g = combat.pickGhoul(ev.clientX, ev.clientY, ground);
+    combat.setTarget(g);
+    if (g) return;
+  } else if (combat.hasTarget()) return;
+  if (ground) moveTo(ground, true);
+}
+renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 0) { mouseDown = true; pick(e, true); } });
+renderer.domElement.addEventListener('pointermove', (e) => { if (mouseDown) pick(e, false); });
 window.addEventListener('pointerup', () => { mouseDown = false; });
+
+const HERO_START = new THREE.Vector3(0, 0, 0);
+const combat = setupCombat({
+  scene, camera, texLoader, maxAnisotropy: renderer.capabilities.getMaxAnisotropy(), glowTex, shadowTex,
+  camDir: CAM_DIR, propTilt: PROP_TILT, propYaw: PROP_YAW, screenRight: SCREEN_RIGHT, screenDown: SCREEN_DOWN,
+  hero, heroPivot, heroStart: HERO_START,
+  moveHeroTo: (p) => moveTo(p, false),
+  stopHero: () => { moving = false; },
+  faceHero: (dir) => faceToward(dir),
+});
+setSkillAction(4, () => combat.drinkPotion());
+if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__combat = combat.debug;
 
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
 function frame() {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const realDt = Math.min(clock.getDelta(), 0.05);
+  const dt = realDt * combat.timeScale(realDt);
   const t = clock.elapsedTime;
 
   let step = 0;
@@ -660,6 +690,7 @@ function frame() {
     }
   }
   updateHero(moving ? tmp : null, step, dt);
+  combat.update(dt, realDt);
 
   const mm = marker.material as THREE.MeshBasicMaterial;
   mm.opacity = Math.max(0, mm.opacity - dt * 1.5);
@@ -701,6 +732,7 @@ function frame() {
 
   camera.position.copy(hero.position).add(CAM_OFFSET);
   camera.lookAt(hero.position);
+  camera.position.add(combat.shakeOffset);
 
   composer.render();
   requestAnimationFrame(frame);

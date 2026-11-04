@@ -153,6 +153,25 @@ def key(im):
     outside = Image.fromarray(((np.asarray(cand)[1:-1, 1:-1] == 128) * 255).astype(np.uint8))
     grown = np.asarray(outside.filter(ImageFilter.MaxFilter(2 * r + 1))) > 0
     outside = (np.asarray(outside) > 0) | (grown & (lum <= hi))
+    # Background enclosed by limbs (between an arm and the body, between the
+    # legs) is not connected to the border. Any sizeable patch of near-exact
+    # background colour is background too; small ones are left alone so dark
+    # details inside the object are never punched out.
+    tight = (lum <= lo + 2) & ~outside
+    if tight.any():
+        min_area = max(150, int(tight.size * 0.0006))
+        lab = Image.fromarray((tight * 255).astype(np.uint8)).copy()
+        ys, xs = np.nonzero(tight)
+        for y, x in zip(ys[::25], xs[::25]):
+            if lab.getpixel((int(x), int(y))) != 255:
+                continue
+            ImageDraw.floodfill(lab, (int(x), int(y)), 100)
+            reg = np.asarray(lab) == 100
+            if reg.sum() >= min_area:
+                outside |= reg
+                lab.paste(0, mask=Image.fromarray((reg * 255).astype(np.uint8)))
+            else:
+                lab.paste(50, mask=Image.fromarray((reg * 255).astype(np.uint8)))
     ramp = np.clip((lum - lo) / (hi - lo), 0, 1)
     a = np.where(outside, ramp, 1.0)
     alpha = Image.fromarray((a * 255).astype(np.uint8))

@@ -1,0 +1,21 @@
+{
+  "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
+  "kinds": {
+    "monster": "full body standing figure, slight mid-stride neutral pose, isometric three-quarter view from above (camera about 35 degrees elevation), whole figure centered with margin above the head and below the feet, plain flat even mid-grey (#808080) background with no gradient or vignette, no mid-grey coloured parts on the creature, no ground, no floor, no cast shadow, soft neutral lighting from top-front"
+  },
+  "items": [
+    {
+      "id": "ghoul_front",
+      "kind": "monster",
+      "post": "prop",
+      "prompt": "An Ash Ghoul: a hunched emaciated humanoid corpse with charred pitch-black cracked skin, glowing ember-orange light seeping from the cracks, bone-white exposed ribs, very long dangling arms with long clawed fingers, crouched stooped posture, bald head with hollow ember eyes, no weapon, no clothing except a few scorched rags, body turned three-quarters facing the lower right of the image, shambling toward the viewer, full body"
+    },
+    {
+      "id": "ghoul_back",
+      "kind": "monster",
+      "post": "prop",
+      "ref": "assets/raw/ghoul_front.jpg",
+      "prompt": "The same creature as in the reference image, same charred black cracked skin with ember glow, same white ribs, same long clawed arms and hunched posture, now seen from behind walking away from the viewer: back turned three-quarters toward the upper right of the image, spine and shoulder blades visible, face not visible, full body"
+    }
+  ]
+}

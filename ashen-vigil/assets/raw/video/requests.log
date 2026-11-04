@@ -6,3 +6,6 @@ walk2_side(rejected: loop pop, ember vanished) 6716876a-e547-9a83-a184-4fa0b323c
 walk2_front(rejected: turned left, ember vanished) 8dc634e1-df42-95db-b673-81cdd1160da9
 walk3_front 45f57cc8-7f05-94ba-9437-ba1dc4e17c44
 walk3_side cdb7bdae-a315-9046-ba25-cbf4b4423bd7
+ghoul_walk_back b4d29803-7bd2-91a9-8e56-803a9d67d73b
+ghoul_walk_front(rejected: pose drifted, loop pop 0.087) afd626a5-377e-9c29-bbb2-116d094e7216
+ghoul_walk_front2 cd38ca93-999b-9519-af7d-872e81ed398c
