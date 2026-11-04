@@ -118,3 +118,20 @@ Cracked dark flagstone floor of a ruined chapel with ash dust in the seams, top-
 ```
 Barren ground covered in grey ash with dead grass and scattered small stones, top-down orthographic, seamless tileable, even lighting, dark fantasy, hand-painted texture style, muted palette of charcoal black, ash grey, bone white and dried-blood red, no text, no watermark
 ```
+
+## 2×2 묶음 프롬프트 (권장)
+
+한 번에 4개를 만들면 스타일이 더 잘 맞습니다. 결과는 960×960 한 장이며, `tools/postprocess.py split`으로 4장으로 자릅니다.
+첫 묶음(도끼·방패·투구·갑옷)의 사실적인 렌더 스타일을 기준으로 삼습니다.
+
+### grid_b — 장검, 철퇴, 반지, 목걸이 (왼쪽 위 → 오른쪽 위 → 왼쪽 아래 → 오른쪽 아래)
+```
+A 2x2 grid of four separate game inventory icons, each centered in its own cell with plain black background and no borders: top-left a worn longsword with a chipped blade and leather-wrapped hilt, top-right a flanged iron mace with soot-stained metal, bottom-left a tarnished silver ring set with a small glowing ember stone, bottom-right a bone-carved amulet on a dark cord shaped like a closed eye. Same realistic hand-painted render style for all four, slight top-left rim light, dark fantasy, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no watermark
+```
+
+### grid_c — 체력 물약, 마나 물약, 잿불 문양, 금 간 종
+```
+A 2x2 grid of four separate game inventory icons, each centered in its own cell with plain black background and no borders: top-left a small round glass flask of dark red liquid with cork and wax seal, top-right the same flask filled with deep slate-blue liquid, bottom-left a rough-cut dark gemstone with a glowing ember-orange rune inside, bottom-right a small cracked bronze hand bell with pale ash leaking from the crack and a faint ember glow inside. Same realistic hand-painted render style for all four, slight top-left rim light, dark fantasy, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no watermark
+```
+
+바닥 텍스처는 이음새 없는 반복이 필요하므로 묶지 말고 한 장씩 만듭니다.
