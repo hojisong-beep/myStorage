@@ -13,6 +13,11 @@
       Make the image wrap without seams (blend with a half-offset copy near
       the edges), resize (default 512px) -> public/assets/textures/<id>.jpg
 
+  python3 tools/postprocess.py normal <texture id> [strength]
+      Build a tangent-space normal map from a texture's brightness
+      (wraps at the edges, so seamless textures stay seamless)
+      -> public/assets/textures/<id>_n.png
+
 Background removal assumes a dark, fairly even background (the prompts ask
 for "plain black background"). Pixels close to the background colour become
 transparent with a soft edge.
@@ -127,6 +132,21 @@ def texture(src, name, size=512):
     print("wrote", out)
 
 
+def normal(name, strength=3.0):
+    import numpy as np
+
+    src = ROOT / "public" / "assets" / "textures" / f"{name}.jpg"
+    im = Image.open(src).convert("L").filter(ImageFilter.GaussianBlur(1.2))
+    h = np.asarray(im, dtype=np.float32) / 255.0
+    dx = (np.roll(h, -1, axis=1) - np.roll(h, 1, axis=1)) * 0.5
+    dy = (np.roll(h, -1, axis=0) - np.roll(h, 1, axis=0)) * 0.5  # image y points down
+    n = np.stack([-dx * strength, dy * strength, np.ones_like(h)], axis=-1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    out = src.with_name(f"{name}_n.png")
+    Image.fromarray(((n * 0.5 + 0.5) * 255).astype(np.uint8)).save(out)
+    print("wrote", out)
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 7 and sys.argv[1] == "split":
         split(sys.argv[2], sys.argv[3:7])
@@ -134,6 +154,8 @@ if __name__ == "__main__":
         icon(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 128)
     elif len(sys.argv) >= 4 and sys.argv[1] == "texture":
         texture(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 512)
+    elif len(sys.argv) >= 3 and sys.argv[1] == "normal":
+        normal(sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else 3.0)
     elif len(sys.argv) >= 4 and sys.argv[1] == "skill":
         skill(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 128)
     else:
