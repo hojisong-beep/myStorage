@@ -1,13 +1,15 @@
 {
   "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
   "kinds": {
-    "prop": "isometric three-quarter view from above (camera about 35 degrees elevation), single object centered, whole object visible with margin, plain pure black background, no ground, no floor, no cast shadow, soft neutral lighting from top-front (do not bake strong colored light; the game lights it)"
+    "prop": "isometric three-quarter view from above (camera about 35 degrees elevation), single object centered, whole object visible with margin, plain pure black background, no ground, no floor, no cast shadow, soft neutral lighting from top-front (do not bake strong colored light; the game lights it)",
+    "prop_grey": "isometric three-quarter view from above (camera about 35 degrees elevation), single object centered, whole object visible with margin, plain flat even mid-grey (#808080) background with no gradient or vignette, no ground, no floor, no cast shadow, soft neutral lighting from top-front (do not bake strong colored light; the game lights it)"
   },
   "items": [
     {
       "id": "brazier_stone",
-      "kind": "prop",
-      "prompt": "An unlit empty stone brazier pedestal carved from pale weathered grey limestone: a sturdy simple column with a wide shallow open stone bowl on top, bowl empty, no fire, no coals, the whole stone surface clearly lit with no pitch-black shadows"
+      "kind": "prop_grey",
+      "prompt": "An unlit empty stone brazier: a rough chiselled bowl on a tapered pedestal, carved from charred dark grey basalt, soot-stained, worn edges, bowl empty with no fire and no coals, dark stone but every face still readable, no pitch-black parts",
+      "post": "prop"
     },
     {
       "id": "pillar_broken_a",

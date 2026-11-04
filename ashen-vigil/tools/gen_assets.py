@@ -11,6 +11,8 @@ Spec file (JSON):
     "kinds": {"icon": "extra words for icons", ...},
     "items": [{"id": "icon_sword", "kind": "icon", "prompt": "A worn longsword ..."}, ...]
   }
+An item may set "post" to pick the postprocess mode when its kind differs
+(e.g. kind "prop_grey" processed as "prop").
 
 Each result is saved as assets/raw/<id>.png. Items of kind "icon", "skill", "texture" and "prop" are then
 passed through tools/postprocess.py (icons: background removal / frame crop, 128px;
@@ -119,8 +121,9 @@ def main():
             print(f"[{iid}] FAILED: {e}")
             continue
         print(f"[{iid}] saved {out.relative_to(ROOT)}")
-        if item.get("kind") in ("icon", "skill", "texture", "prop"):
-            subprocess.run([sys.executable, str(ROOT / "tools" / "postprocess.py"), item["kind"], str(out), iid], check=True)
+        post = item.get("post", item.get("kind"))  # postprocess mode; defaults to the kind
+        if post in ("icon", "skill", "texture", "prop"):
+            subprocess.run([sys.executable, str(ROOT / "tools" / "postprocess.py"), post, str(out), iid], check=True)
         if item.get("kind") == "texture":  # normal map from the processed texture
             subprocess.run([sys.executable, str(ROOT / "tools" / "postprocess.py"), "normal", iid], check=True)
     return 1 if failed else 0

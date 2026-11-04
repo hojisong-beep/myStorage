@@ -10,7 +10,8 @@
       Cut away a flat border / rounded frame the model drew around the art,
       crop to a square and resize -> public/assets/icons/<id>.png
   python3 tools/postprocess.py prop <raw image> <id> [max width]
-      Cut a world prop out of its dark background (only background connected
+      Cut a world prop out of its flat background (black or grey; the colour
+      is read from the border) (only background connected
       to the image border is removed, so dark stone inside stays opaque),
       remove the dark fringe, crop, scale to at most 384px wide ->
       public/assets/props/<id>.png; size and anchor go to props/props.json.
@@ -127,11 +128,18 @@ def prop(src, name, max_w=384):
     from PIL import ImageDraw
 
     im = Image.open(src).convert("RGB")
-    bg = background_level(im)
-    lum = np.asarray(im.convert("L"), dtype=np.float32)
-    # The prop backgrounds are near pure black and very flat, so a tight band
-    # is enough; a wide one leaks into dark stone through shadowed paths.
-    lo, hi = bg + 3, bg + 14
+    rgb = np.asarray(im, dtype=np.float32)
+    # Background colour = median of the border pixels; works for the black
+    # backgrounds and for a flat grey one (keying dark objects, which would
+    # vanish into black). Distance = largest per-channel difference from it.
+    border = np.concatenate([rgb[:4].reshape(-1, 3), rgb[-4:].reshape(-1, 3), rgb[:, :4].reshape(-1, 3), rgb[:, -4:].reshape(-1, 3)])
+    bg_rgb = np.median(border, axis=0)
+    dist = np.abs(rgb - bg_rgb).max(axis=2)
+    noise = float(np.percentile(np.abs(border - bg_rgb).max(axis=1), 95))
+    # A tight band above the background's own noise; a wide one leaks into
+    # the object through shadowed paths.
+    lo, hi = noise + 3, noise + 14
+    lum = dist
     # Background candidates, flood-filled from the border. Very dark parts of
     # the object (shadowed carving, wood grain) can touch the background
     # through thin gaps, so the object mask is first closed (gaps up to

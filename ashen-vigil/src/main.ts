@@ -22,8 +22,8 @@ renderer.toneMappingExposure = 1.0;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0a09);
-scene.fog = new THREE.Fog(0x0b0a09, 32, 62);
+scene.background = new THREE.Color(0x0a0b0d);
+scene.fog = new THREE.Fog(0x0a0b0d, 32, 62);
 
 // Isometric-style orthographic camera, kept at a fixed offset from the hero.
 const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
@@ -52,8 +52,9 @@ window.addEventListener('resize', resize);
 resize();
 
 // Dim ambient light: the world should be dark outside light sources.
-scene.add(new THREE.HemisphereLight(0x5a5c70, 0x1a1410, 0.45));
-const moon = new THREE.DirectionalLight(0x8090b0, 0.35);
+// Cool, neutral fill so stone away from the fires reads as grey, not brown.
+scene.add(new THREE.HemisphereLight(0x6c7688, 0x15171b, 0.6));
+const moon = new THREE.DirectionalLight(0x8a9ab8, 0.4);
 moon.position.set(-10, 30, 5);
 scene.add(moon);
 
@@ -136,7 +137,7 @@ const floorGeo = new THREE.PlaneGeometry(GRID * TILE, GRID * TILE, 48, 48).rotat
     const patch = 0.7 + 0.45 * (0.5 + 0.25 * Math.sin(x * 0.31 + 1.3) + 0.25 * Math.sin(z * 0.27 + x * 0.11)) + (rand() - 0.5) * 0.12;
     const edge = THREE.MathUtils.smoothstep(half - Math.max(Math.abs(x), Math.abs(z)), 0, 4);
     const v = patch * (0.25 + 0.75 * edge);
-    col[i * 3] = v; col[i * 3 + 1] = v * 0.97; col[i * 3 + 2] = v * 0.93;
+    col[i * 3] = v * 0.95; col[i * 3 + 1] = v * 0.98; col[i * 3 + 2] = v;   // slightly cool; warmth comes from the fires only
   }
   floorGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
 }
@@ -166,10 +167,6 @@ for (const id of PROP_IDS) {
     emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
   }));
 }
-// The pedestal was painted in pale limestone (darker prompts lost detail to
-// the black background); tone it down so it sits beside the torchlit floor.
-propMats.get('brazier_stone')!.color.setScalar(0.42);
-propMats.get('brazier_stone')!.emissiveIntensity = 0.1;
 const CAM_DIR = CAM_OFFSET.clone().normalize();                       // from the scene toward the camera
 const PROP_YAW = Math.atan2(CAM_DIR.x, CAM_DIR.z);
 const PROP_TILT = Math.atan2(Math.hypot(CAM_DIR.x, CAM_DIR.z), CAM_DIR.y) - Math.PI / 2; // lean back so the quad faces the camera
@@ -198,7 +195,7 @@ interface Torch {
 }
 const torches: Torch[] = [];
 const braziers: [number, number][] = [[-8, -8], [8, -8], [-8, 8], [8, 8], [0, -14], [-14, 2], [14, -2]];
-const BRAZIER_H = 2.6;
+const BRAZIER_H = 2.4;
 const SPARKS_PER = 12;
 const SPARKS = braziers.length * SPARKS_PER;
 const sparkPos = new Float32Array(SPARKS * 3);
@@ -208,8 +205,8 @@ const sparkVel = new Float32Array(SPARKS * 3);
 function placeBraziers(aspect: number) {
   for (const [x, z] of braziers) {
     addProp('brazier_stone', x, z, BRAZIER_H, aspect);
-    // Centre of the bowl opening sits ~86% up the image; nudge toward the camera so the fire draws over the rim.
-    const bowl = new THREE.Vector3(x, 0, z).addScaledVector(PROP_UP, BRAZIER_H * 0.86).addScaledVector(CAM_DIR, 0.4);
+    // Centre of the bowl opening sits ~80% up the image; nudge toward the camera so the fire draws over the rim.
+    const bowl = new THREE.Vector3(x, 0, z).addScaledVector(PROP_UP, BRAZIER_H * 0.8).addScaledVector(CAM_DIR, 0.4);
     const coalMat = new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(0.9, 0.25, 0.05), blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     const coals = new THREE.Sprite(coalMat);
     coals.scale.set(0.95, 0.4, 1);
@@ -231,10 +228,10 @@ function placeBraziers(aspect: number) {
     halo.position.copy(bowl).y += 0.5;
     scene.add(halo);
 
-    const light = new THREE.PointLight(0xff8a3a, 36, 18, 2);
+    const light = new THREE.PointLight(0xff9548, 34, 11, 2);   // short reach: warm pools, cool stone between them
     light.position.copy(bowl).add(new THREE.Vector3(0.6, 0.6, 0.6));    // a little toward the camera so the painted face is lit
     scene.add(light);
-    torches.push({ light, flames, halo, coals: coalMat, base: 36, phase: rand() * 10, x: bowl.x, y: bowl.y - 0.55, z: bowl.z });
+    torches.push({ light, flames, halo, coals: coalMat, base: 34, phase: rand() * 10, x: bowl.x, y: bowl.y - 0.55, z: bowl.z });
   }
   for (let i = 0; i < SPARKS; i++) { respawnSpark(i, torches[Math.floor(i / SPARKS_PER)]); sparkLife[i] = rand() * 2; }
   sparks.visible = true;
