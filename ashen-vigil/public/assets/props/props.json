@@ -1,0 +1,83 @@
+{
+ "barrel": {
+  "w": 247,
+  "h": 370,
+  "aspect": 0.6676,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "bone_pile": {
+  "w": 384,
+  "h": 291,
+  "aspect": 1.3196,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "brazier_stone": {
+  "w": 384,
+  "h": 526,
+  "aspect": 0.73,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "dead_tree": {
+  "w": 384,
+  "h": 629,
+  "aspect": 0.6105,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "gravestone": {
+  "w": 323,
+  "h": 475,
+  "aspect": 0.68,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "pillar_broken_a": {
+  "w": 207,
+  "h": 544,
+  "aspect": 0.3805,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "pillar_broken_b": {
+  "w": 288,
+  "h": 342,
+  "aspect": 0.8421,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "rubble_pile": {
+  "w": 384,
+  "h": 242,
+  "aspect": 1.5868,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ },
+ "statue_hooded": {
+  "w": 295,
+  "h": 701,
+  "aspect": 0.4208,
+  "anchor": [
+   0.5,
+   0.0
+  ]
+ }
+}

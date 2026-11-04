@@ -9,6 +9,11 @@
   python3 tools/postprocess.py skill <raw image> <id> [size]
       Cut away a flat border / rounded frame the model drew around the art,
       crop to a square and resize -> public/assets/icons/<id>.png
+  python3 tools/postprocess.py prop <raw image> <id> [max width]
+      Cut a world prop out of its dark background (only background connected
+      to the image border is removed, so dark stone inside stays opaque),
+      remove the dark fringe, crop, scale to at most 384px wide ->
+      public/assets/props/<id>.png; size and anchor go to props/props.json.
   python3 tools/postprocess.py texture <raw image> <id> [size]
       Make the image wrap without seams (blend with a half-offset copy near
       the edges), resize (default 512px) -> public/assets/textures/<id>.jpg
@@ -116,8 +121,89 @@ def skill(src, name, size=128):
     print("wrote", out, "crop", box)
 
 
+def prop(src, name, max_w=384):
+    import json
+    import numpy as np
+    from PIL import ImageDraw
+
+    im = Image.open(src).convert("RGB")
+    bg = background_level(im)
+    lum = np.asarray(im.convert("L"), dtype=np.float32)
+    # The prop backgrounds are near pure black and very flat, so a tight band
+    # is enough; a wide one leaks into dark stone through shadowed paths.
+    lo, hi = bg + 3, bg + 14
+    # Background candidates, flood-filled from the border. Very dark parts of
+    # the object (shadowed carving, wood grain) can touch the background
+    # through thin gaps, so the object mask is first closed (gaps up to
+    # ~2*r px sealed), filled, and the fill is then grown back r px into
+    # background-dark pixels so the outline itself stays tight.
+    r = 6
+    obj = Image.fromarray(((lum > hi) * 255).astype(np.uint8))
+    sealed = obj.filter(ImageFilter.MaxFilter(2 * r + 1)).filter(ImageFilter.MinFilter(2 * r + 1))
+    cand = Image.fromarray(np.pad(255 - np.asarray(sealed), 1, constant_values=255)).copy()  # floodfill needs its own buffer
+    ImageDraw.floodfill(cand, (0, 0), 128)
+    outside = Image.fromarray(((np.asarray(cand)[1:-1, 1:-1] == 128) * 255).astype(np.uint8))
+    grown = np.asarray(outside.filter(ImageFilter.MaxFilter(2 * r + 1))) > 0
+    outside = (np.asarray(outside) > 0) | (grown & (lum <= hi))
+    ramp = np.clip((lum - lo) / (hi - lo), 0, 1)
+    a = np.where(outside, ramp, 1.0)
+    alpha = Image.fromarray((a * 255).astype(np.uint8))
+    # Pull the edge in by a pixel and soften it, which drops the dark halo.
+    alpha = alpha.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.7))
+    a = np.asarray(alpha, dtype=np.float32) / 255
+    rgb = np.asarray(im, dtype=np.float32)
+    rgba = Image.fromarray(np.dstack([rgb, a * 255]).astype(np.uint8), "RGBA")
+    bbox = alpha.point(lambda v: 255 if v > 16 else 0).getbbox()
+    rgba = rgba.crop(bbox)
+    if rgba.width > max_w:
+        rgba = rgba.resize((max_w, round(rgba.height * max_w / rgba.width)), Image.LANCZOS)
+    out_dir = ROOT / "public" / "assets" / "props"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rgba.save(out_dir / f"{name}.png")
+    meta_path = out_dir / "props.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    # Anchor: bottom centre of the image sits on the ground.
+    meta[name] = {"w": rgba.width, "h": rgba.height, "aspect": round(rgba.width / rgba.height, 4), "anchor": [0.5, 0.0]}
+    meta_path.write_text(json.dumps(dict(sorted(meta.items())), indent=1) + "\n")
+    print("wrote", out_dir / f"{name}.png", rgba.size)
+
+
+def repeat_crop(im):
+    """If the model painted the pattern twice across (a common habit), return
+    one period cut along a dark mortar line, which wraps by itself; else None."""
+    import numpy as np
+
+    a = np.asarray(im.convert("L"), dtype=np.float32)
+    h, w = a.shape
+    def period(axis):
+        n = a.shape[axis]
+        errs = {}
+        for p in range(int(n * 0.45), int(n * 0.55)):
+            errs[p] = np.abs(a[: n - p] - a[p:]).mean() if axis == 0 else np.abs(a[:, : n - p] - a[:, p:]).mean()
+        best = min(errs, key=errs.get)
+        base = np.abs(a[: n - n // 30] - a[n // 30:]).mean() if axis == 0 else np.abs(a[:, : n - n // 30] - a[:, n // 30:]).mean()
+        return best, errs[best] / base
+    py, ry = period(0)
+    px, rx = period(1)
+    if max(ry, rx) > 0.6:
+        return None
+    rows, cols = a.mean(1), a.mean(0)
+    y0 = int(np.argmin(rows[h // 5: h // 5 + py // 3])) + h // 5
+    x0 = int(np.argmin(cols[w // 5: w // 5 + px // 3])) + w // 5
+    return im.crop((x0, y0, x0 + px, y0 + py))
+
+
 def texture(src, name, size=512):
-    im = Image.open(src).convert("RGB").resize((size, size), Image.LANCZOS)
+    im = Image.open(src).convert("RGB")
+    out_dir = ROOT / "public" / "assets" / "textures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"{name}.jpg"
+    tile = repeat_crop(im)
+    if tile is not None:
+        tile.resize((size, size), Image.LANCZOS).save(out, quality=88)
+        print("wrote", out, "(one repeat period, cut on a mortar line)")
+        return
+    im = im.resize((size, size), Image.LANCZOS)
     shifted = ImageChops.offset(im, size // 2, size // 2)  # its edges are the original's centre
     # Weight: 255 in the middle, falling to 0 at the edges, so the result's
     # edges come from the shifted copy and wrap continuously.
@@ -125,9 +211,6 @@ def texture(src, name, size=512):
     wx = Image.new("L", (size, 1)); wx.putdata(ramp)
     wy = Image.new("L", (1, size)); wy.putdata(ramp)
     mask = ImageChops.multiply(wx.resize((size, size)), wy.resize((size, size)))
-    out_dir = ROOT / "public" / "assets" / "textures"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{name}.jpg"
     Image.composite(im, shifted, mask).save(out, quality=88)
     print("wrote", out)
 
@@ -152,6 +235,8 @@ if __name__ == "__main__":
         split(sys.argv[2], sys.argv[3:7])
     elif len(sys.argv) >= 4 and sys.argv[1] == "icon":
         icon(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 128)
+    elif len(sys.argv) >= 4 and sys.argv[1] == "prop":
+        prop(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 384)
     elif len(sys.argv) >= 4 and sys.argv[1] == "texture":
         texture(sys.argv[2], sys.argv[3], int(sys.argv[4]) if len(sys.argv) > 4 else 512)
     elif len(sys.argv) >= 3 and sys.argv[1] == "normal":

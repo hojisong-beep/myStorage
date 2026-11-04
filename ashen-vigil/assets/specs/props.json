@@ -1,0 +1,53 @@
+{
+  "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
+  "kinds": {
+    "prop": "isometric three-quarter view from above (camera about 35 degrees elevation), single object centered, whole object visible with margin, plain pure black background, no ground, no floor, no cast shadow, soft neutral lighting from top-front (do not bake strong colored light; the game lights it)"
+  },
+  "items": [
+    {
+      "id": "brazier_stone",
+      "kind": "prop",
+      "prompt": "An unlit empty stone brazier pedestal carved from pale weathered grey limestone: a sturdy simple column with a wide shallow open stone bowl on top, bowl empty, no fire, no coals, the whole stone surface clearly lit with no pitch-black shadows"
+    },
+    {
+      "id": "pillar_broken_a",
+      "kind": "prop",
+      "prompt": "A tall broken grey stone column of a ruined chapel, snapped off with a jagged top, square plinth at the base, weathered and chipped"
+    },
+    {
+      "id": "pillar_broken_b",
+      "kind": "prop",
+      "prompt": "A short stump of a fluted grey stone column broken low, jagged top, small fallen chunks at its foot"
+    },
+    {
+      "id": "rubble_pile",
+      "kind": "prop",
+      "prompt": "A low pile of broken grey masonry blocks and stone rubble"
+    },
+    {
+      "id": "bone_pile",
+      "kind": "prop",
+      "prompt": "A small heap of old yellowed human bones with two skulls"
+    },
+    {
+      "id": "gravestone",
+      "kind": "prop",
+      "prompt": "An old weathered grey stone gravestone with a rounded top, tilted to one side, cracked, blank face with no inscription"
+    },
+    {
+      "id": "statue_hooded",
+      "kind": "prop",
+      "prompt": "A grey stone statue of a hooded robed figure standing with hands clasped, the head broken off at the neck, on a square stone base"
+    },
+    {
+      "id": "barrel",
+      "kind": "prop",
+      "prompt": "An old weathered wooden barrel with rusted iron hoops, standing upright"
+    },
+    {
+      "id": "dead_tree",
+      "kind": "prop",
+      "prompt": "A small bare dead leafless tree with bleached pale ash-grey weathered bark, twisted trunk and a few thick gnarled branches, roots at the base, the whole tree clearly lit with no pitch-black parts"
+    }
+  ]
+}

@@ -29,7 +29,7 @@
     {
       "id": "tex_chapel_floor",
       "kind": "texture",
-      "prompt": "Dark weathered stone floor of a ruined chapel, small irregular cracks and fine ash dust spread evenly, no visible tile grid or slab borders"
+      "prompt": "Large grey flagstone slabs of a ruined chapel floor, irregular rectangular stones with clear dark mortar lines between them, mid-grey tone, moderate contrast, a few fine cracks and ash dust, evenly lit"
     },
     {
       "id": "tex_moor_ground",

@@ -118,14 +118,6 @@ const shadowTex = canvasTex(64, 64, (c) => {
   c.fillStyle = g;
   c.fillRect(0, 0, 64, 64);
 });
-const heatTex = canvasTex(4, 64, (c) => {          // warm glow fading down the pillar shaft
-  const g = c.createLinearGradient(0, 0, 0, 64);
-  g.addColorStop(0, 'rgb(150,78,30)');
-  g.addColorStop(0.55, 'rgb(64,30,11)');
-  g.addColorStop(1, 'rgb(18,8,3)');
-  c.fillStyle = g;
-  c.fillRect(0, 0, 4, 64);
-});
 
 // Ash moor around the chapel floor, reaching past the fog.
 const moor = new THREE.Mesh(new THREE.PlaneGeometry(160, 160).rotateX(-Math.PI / 2), groundMaterial('tex_moor_ground', 8, 160, 1.4, { color: new THREE.Color(1.8, 1.8, 1.8) }));
@@ -148,7 +140,7 @@ const floorGeo = new THREE.PlaneGeometry(GRID * TILE, GRID * TILE, 48, 48).rotat
   }
   floorGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
 }
-const floor = new THREE.Mesh(floorGeo, groundMaterial('tex_chapel_floor', 6, GRID * TILE, 1.6, { vertexColors: true, color: new THREE.Color(2.0, 2.0, 2.0) }));
+const floor = new THREE.Mesh(floorGeo, groundMaterial('tex_chapel_floor', 9, GRID * TILE, 1.6, { vertexColors: true, color: new THREE.Color(1.45, 1.45, 1.45) }));
 scene.add(floor);
 
 // Invisible plane used for click picking.
@@ -158,80 +150,152 @@ const pickPlane = new THREE.Mesh(
 );
 scene.add(pickPlane);
 
-// Stone braziers: tapered shaft, iron bowl, glowing coals, layered flame
+// World props: Grok-painted cut-outs (tools/postprocess.py prop) on upright
+// quads that lean back to face the camera, pivoting on their bottom edge so
+// they stand on the floor. They are lit by the braziers like everything else;
+// a weak emissive copy of the image keeps the dark side from going black.
+const PROP_IDS = ['brazier_stone', 'pillar_broken_a', 'pillar_broken_b', 'rubble_pile', 'bone_pile', 'gravestone', 'statue_hooded', 'barrel', 'dead_tree'] as const;
+type PropId = typeof PROP_IDS[number];
+const propMats = new Map<PropId, THREE.MeshStandardMaterial>();
+for (const id of PROP_IDS) {
+  const tex = texLoader.load(`assets/props/${id}.png`);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  propMats.set(id, new THREE.MeshStandardMaterial({
+    map: tex, alphaTest: 0.45, roughness: 0.95, side: THREE.DoubleSide,
+    emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
+  }));
+}
+// The pedestal was painted in pale limestone (darker prompts lost detail to
+// the black background); tone it down so it sits beside the torchlit floor.
+propMats.get('brazier_stone')!.color.setScalar(0.42);
+propMats.get('brazier_stone')!.emissiveIntensity = 0.1;
+const CAM_DIR = CAM_OFFSET.clone().normalize();                       // from the scene toward the camera
+const PROP_YAW = Math.atan2(CAM_DIR.x, CAM_DIR.z);
+const PROP_TILT = Math.atan2(Math.hypot(CAM_DIR.x, CAM_DIR.z), CAM_DIR.y) - Math.PI / 2; // lean back so the quad faces the camera
+const PROP_UP = new THREE.Vector3(0, 1, 0).applyEuler(new THREE.Euler(PROP_TILT, PROP_YAW, 0, 'YXZ'));
+function addProp(id: PropId, x: number, z: number, height: number, aspect: number, flip = false) {
+  const geo = new THREE.PlaneGeometry(height * aspect, height);
+  geo.translate(0, height / 2, 0);                                    // bottom-centre anchor
+  const m = new THREE.Mesh(geo, propMats.get(id)!);
+  m.rotation.set(PROP_TILT, PROP_YAW, 0, 'YXZ');
+  if (flip) m.scale.x = -1;
+  m.position.set(x, 0, z);
+  scene.add(m);
+  return m;
+}
+
+// Stone braziers: the painted pedestal, glowing coals, layered flame
 // sprites, a halo, rising sparks and a flickering point light.
 interface Torch {
   light: THREE.PointLight;
   flames: THREE.Sprite[];
   halo: THREE.Sprite;
-  coals: THREE.MeshBasicMaterial;
-  shaft: THREE.MeshStandardMaterial;
+  coals: THREE.SpriteMaterial;
   base: number;
   phase: number;
   x: number; y: number; z: number;
 }
 const torches: Torch[] = [];
-const stoneMap = loadTex('tex_chapel_floor.jpg', 1, 1, true);
-const stoneNormal = loadTex('tex_chapel_floor_n.png', 1, 1, false);
-const ironMat = new THREE.MeshStandardMaterial({ color: 0x1c1a19, roughness: 0.55, metalness: 0.8, side: THREE.DoubleSide });
-const pillarSpots: [number, number, number][] = [
-  [-8, -8, 4], [8, -8, 2.5], [-8, 8, 3], [8, 8, 4.5], [0, -14, 3.5], [-14, 2, 2], [14, -2, 3],
-];
+const braziers: [number, number][] = [[-8, -8], [8, -8], [-8, 8], [8, 8], [0, -14], [-14, 2], [14, -2]];
+const BRAZIER_H = 2.6;
 const SPARKS_PER = 12;
-const SPARKS = pillarSpots.length * SPARKS_PER;
+const SPARKS = braziers.length * SPARKS_PER;
 const sparkPos = new Float32Array(SPARKS * 3);
 const sparkLife = new Float32Array(SPARKS);
 const sparkVel = new Float32Array(SPARKS * 3);
 
-for (const [x, z, h] of pillarSpots) {
-  const shaftMap = stoneMap.clone();
-  shaftMap.repeat.set(1.2, h / 3);
-  shaftMap.needsUpdate = true;
-  const shaftNormal = stoneNormal.clone();
-  shaftNormal.repeat.set(1.2, h / 3);
-  shaftNormal.needsUpdate = true;
-  const shaft = new THREE.MeshStandardMaterial({
-    map: shaftMap, normalMap: shaftNormal, normalScale: new THREE.Vector2(1.5, 1.5), color: new THREE.Color(2.1, 2.0, 1.9), roughness: 0.95,
-    emissive: 0xffffff, emissiveMap: heatTex, emissiveIntensity: 0.5,
-  });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.78, h, 10), shaft);
-  body.position.set(x, h / 2, z);
-  scene.add(body);
-  const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.08, 0.3, 10), shaft);
-  foot.position.set(x, 0.15, z);
-  scene.add(foot);
-  const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.6, 0.28, 10), shaft);
-  rim.position.set(x, h + 0.14, z);
-  scene.add(rim);
-  const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.72, 0.38, 0.42, 14, 1, true), ironMat);
-  bowl.position.set(x, h + 0.42, z);
-  scene.add(bowl);
-  const coalMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.9, 0.28, 0.06) });
-  const coals = new THREE.Mesh(new THREE.CircleGeometry(0.62, 14).rotateX(-Math.PI / 2), coalMat);
-  coals.position.set(x, h + 0.55, z);
-  scene.add(coals);
+function placeBraziers(aspect: number) {
+  for (const [x, z] of braziers) {
+    addProp('brazier_stone', x, z, BRAZIER_H, aspect);
+    // Centre of the bowl opening sits ~86% up the image; nudge toward the camera so the fire draws over the rim.
+    const bowl = new THREE.Vector3(x, 0, z).addScaledVector(PROP_UP, BRAZIER_H * 0.86).addScaledVector(CAM_DIR, 0.4);
+    const coalMat = new THREE.SpriteMaterial({ map: glowTex, color: new THREE.Color(0.9, 0.25, 0.05), blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    const coals = new THREE.Sprite(coalMat);
+    coals.scale.set(0.95, 0.4, 1);
+    coals.position.copy(bowl);
+    scene.add(coals);
 
-  const flames: THREE.Sprite[] = [];
-  for (let k = 0; k < 3; k++) {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: flameTex, color: new THREE.Color(1.0, 0.4 + k * 0.1, 0.1), blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+    const flames: THREE.Sprite[] = [];
+    for (let k = 0; k < 3; k++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: flameTex, color: new THREE.Color(1.0, 0.4 + k * 0.1, 0.1), blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      }));
+      scene.add(sp);
+      flames.push(sp);
+    }
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTex, color: new THREE.Color(1.3, 0.45, 0.12), blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.2, fog: false,
     }));
-    sp.position.set(x, h + 1.15, z);
-    scene.add(sp);
-    flames.push(sp);
-  }
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-    map: glowTex, color: new THREE.Color(1.3, 0.45, 0.12), blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.2, fog: false,
-  }));
-  halo.scale.set(4.2, 4.2, 1);
-  halo.position.set(x, h + 1.1, z);
-  scene.add(halo);
+    halo.scale.set(4.2, 4.2, 1);
+    halo.position.copy(bowl).y += 0.5;
+    scene.add(halo);
 
-  const light = new THREE.PointLight(0xff8a3a, 36, 18, 2);
-  light.position.set(x + 1.0, h + 0.8, z + 1.0);   // offset toward the camera so the visible side of the shaft is lit
-  scene.add(light);
-  torches.push({ light, flames, halo, coals: coalMat, shaft, base: 36, phase: rand() * 10, x, y: h + 0.6, z });
+    const light = new THREE.PointLight(0xff8a3a, 36, 18, 2);
+    light.position.copy(bowl).add(new THREE.Vector3(0.6, 0.6, 0.6));    // a little toward the camera so the painted face is lit
+    scene.add(light);
+    torches.push({ light, flames, halo, coals: coalMat, base: 36, phase: rand() * 10, x: bowl.x, y: bowl.y - 0.55, z: bowl.z });
+  }
+  for (let i = 0; i < SPARKS; i++) { respawnSpark(i, torches[Math.floor(i / SPARKS_PER)]); sparkLife[i] = rand() * 2; }
+  sparks.visible = true;
 }
+
+// Scatter: ruins near the braziers and along the floor edge, trees out on
+// the moor. Fixed seed so the layout is the same every load; the middle of
+// the floor stays open for walking.
+function placeScatter(aspect: Record<string, number>) {
+  let s = 1234;
+  const r = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  const sizes: Record<PropId, number> = {
+    brazier_stone: BRAZIER_H, pillar_broken_a: 3.6, pillar_broken_b: 1.7, rubble_pile: 1.0, bone_pile: 0.9,
+    gravestone: 1.5, statue_hooded: 3.3, barrel: 1.3, dead_tree: 5.0,
+  };
+  const spots: [number, number][] = [];
+  const free = (x: number, z: number, d: number) =>
+    Math.hypot(x, z) > 6 && spots.every(([a, b]) => Math.hypot(a - x, b - z) > d) && braziers.every(([a, b]) => Math.hypot(a - x, b - z) > 1.6);
+  const put = (id: PropId, x: number, z: number, scale = 1) => {
+    spots.push([x, z]);
+    addProp(id, x, z, sizes[id] * scale, aspect[id], r() < 0.5);
+  };
+  // Beside each brazier: a bit of rubble or bones, sometimes a barrel.
+  for (const [bx, bz] of braziers) {
+    for (const id of ['rubble_pile', 'bone_pile', 'barrel'] as PropId[]) {
+      if (id === 'barrel' && r() < 0.5) continue;
+      for (let t = 0; t < 10; t++) {
+        const ang = r() * Math.PI * 2, d = 1.8 + r() * 1.2;
+        const x = bx + Math.cos(ang) * d, z = bz + Math.sin(ang) * d;
+        if (free(x, z, 1.3) && Math.abs(x) < half - 1 && Math.abs(z) < half - 1) { put(id, x, z, 0.85 + r() * 0.3); break; }
+      }
+    }
+  }
+  // Floor edge: broken pillars, statues, graves.
+  const edge: PropId[] = ['pillar_broken_a', 'pillar_broken_b', 'statue_hooded', 'gravestone', 'pillar_broken_a', 'gravestone', 'pillar_broken_b',
+    'rubble_pile', 'statue_hooded', 'gravestone', 'pillar_broken_b', 'bone_pile', 'pillar_broken_a', 'gravestone'];
+  for (const id of edge) {
+    for (let t = 0; t < 20; t++) {
+      const side = Math.floor(r() * 4), along = (r() - 0.5) * 2 * (half - 2), inset = half - 1.2 - r() * 2.5;
+      const [x, z] = side === 0 ? [along, -inset] : side === 1 ? [along, inset] : side === 2 ? [-inset, along] : [inset, along];
+      if (free(x, z, 2.2)) { put(id, x, z, 0.85 + r() * 0.3); break; }
+    }
+  }
+  // Dead trees on the moor just outside the floor.
+  for (let i = 0; i < 9; i++) {
+    for (let t = 0; t < 20; t++) {
+      const ang = r() * Math.PI * 2, d = half + 3 + r() * 10;
+      const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
+      if (free(x, z, 4)) { put('dead_tree', x, z, 0.8 + r() * 0.5); break; }
+    }
+  }
+}
+
+fetch('assets/props/props.json')
+  .then((res) => res.json())
+  .then((meta: Record<string, { aspect: number }>) => {
+    const aspect = Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, v.aspect]));
+    placeBraziers(aspect.brazier_stone);
+    placeScatter(aspect);
+  });
+
 const sparkGeo = new THREE.BufferGeometry();
 sparkGeo.setAttribute('position', new THREE.BufferAttribute(sparkPos, 3));
 const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
@@ -239,6 +303,7 @@ const sparks = new THREE.Points(sparkGeo, new THREE.PointsMaterial({
   blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
 }));
 sparks.frustumCulled = false;
+sparks.visible = false;                            // until the braziers are placed
 scene.add(sparks);
 function respawnSpark(i: number, torch: Torch) {
   sparkPos[i * 3] = torch.x + (rand() - 0.5) * 0.6;
@@ -249,8 +314,6 @@ function respawnSpark(i: number, torch: Torch) {
   sparkVel[i * 3 + 2] = (rand() - 0.5) * 0.5;
   sparkLife[i] = 0.8 + rand() * 1.6;
 }
-for (let i = 0; i < SPARKS; i++) { respawnSpark(i, torches[Math.floor(i / SPARKS_PER)]); sparkLife[i] = rand() * 2; }
-
 // Placeholder hero: a capsule with a small ember light that follows them.
 const hero = new THREE.Group();
 const body = new THREE.Mesh(
@@ -343,8 +406,7 @@ function frame() {
     const flick = 0.82 + 0.28 * n;
     tr.light.intensity = tr.base * flick;
     tr.halo.material.opacity = 0.13 + 0.1 * flick;
-    tr.coals.color.setRGB(0.7 + 0.5 * flick, 0.2 + 0.12 * flick, 0.05);
-    tr.shaft.emissiveIntensity = 0.3 + 0.3 * flick;
+    tr.coals.color.setRGB(0.6 + 0.4 * flick, 0.15 + 0.1 * flick, 0.03);
     tr.flames.forEach((f, k) => {
       const w = Math.sin(t * (9 + k * 3.7) + tr.phase * (k + 1));
       const hgt = 2.0 + 0.7 * flick + 0.4 * w;
@@ -355,7 +417,7 @@ function frame() {
       (f.material as THREE.SpriteMaterial).rotation = 0.15 * w;
     });
   }
-  for (let i = 0; i < SPARKS; i++) {
+  for (let i = 0; i < SPARKS && torches.length; i++) {
     sparkLife[i] -= dt;
     if (sparkLife[i] <= 0) { respawnSpark(i, torches[Math.floor(i / SPARKS_PER)]); continue; }
     sparkPos[i * 3] += sparkVel[i * 3] * dt + Math.sin(t * 6 + i) * dt * 0.3;
