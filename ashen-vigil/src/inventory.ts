@@ -47,6 +47,7 @@ const css = `
   width: ${10 * CELL + 2}px; padding: 14px; background: rgba(14, 12, 11, 0.94); border: 1px solid #4a4038;
   box-shadow: 0 0 0 1px #000, 0 8px 32px #000; font: 13px/1.4 system-ui, sans-serif; color: #b8aa98; user-select: none; }
 #inv[hidden] { display: none !important; }
+@media (max-width: 460px) { #inv { transform: scale(0.82); transform-origin: top right; } }
 #inv h2 { margin: 0 0 10px; font: 600 14px/1 Georgia, serif; letter-spacing: 0.12em; color: #e8873a; text-transform: uppercase; }
 #inv .equip { position: relative; height: 270px; margin-bottom: 12px; }
 #inv .slot, #inv .bag { background: #0e0c0b; border: 1px solid #3a322b; }

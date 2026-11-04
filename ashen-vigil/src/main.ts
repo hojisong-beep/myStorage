@@ -2,6 +2,7 @@
 // a placeholder hero that walks to where you click, drifting ash.
 import * as THREE from 'three';
 import { setupInventory } from './inventory';
+import { setupSkillBar } from './skillbar';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
@@ -39,15 +40,41 @@ const moon = new THREE.DirectionalLight(0x8090b0, 0.4);
 moon.position.set(-10, 30, 5);
 scene.add(moon);
 
-// Floor: stone tiles with slight color variation (placeholder until Grok textures).
+// Ground textures (Grok-generated, made seamless by tools/postprocess.py).
+const texLoader = new THREE.TextureLoader();
+function groundTexture(name: string, repeat: number, rotation = 0) {
+  const tex = texLoader.load(`assets/textures/${name}.jpg`);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.center.set(0.5, 0.5);
+  tex.rotation = rotation;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return tex;
+}
+
+// Ash moor around the chapel floor, reaching past the fog.
+const moor = new THREE.Mesh(
+  new THREE.PlaneGeometry(160, 160).rotateX(-Math.PI / 2),
+  new THREE.MeshStandardMaterial({ map: groundTexture('tex_moor_ground', 160 / 8), roughness: 1 }),
+);
+moor.position.y = -0.32;
+moor.receiveShadow = true;
+scene.add(moor);
+
+// Chapel floor: stone slabs sharing one texture; four rotated variants and a
+// slight tint per slab keep neighbours from looking identical.
 const tileGeo = new THREE.BoxGeometry(TILE * 0.96, 0.3, TILE * 0.96);
 const half = (GRID * TILE) / 2;
 let seed = 7;
 const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+const floorTex = [0, 1, 2, 3].map((k) => groundTexture('tex_chapel_floor', 0.5, (k * Math.PI) / 2));
 for (let i = 0; i < GRID; i++) {
   for (let j = 0; j < GRID; j++) {
-    const shade = 0.13 + rand() * 0.06;
-    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(shade, shade * 0.95, shade * 0.9), roughness: 0.95 });
+    const shade = 0.75 + rand() * 0.3;
+    const tex = floorTex[Math.floor(rand() * 4)].clone();
+    tex.offset.set(rand(), rand());
+    const mat = new THREE.MeshStandardMaterial({ map: tex, color: new THREE.Color(shade, shade * 0.97, shade * 0.94), roughness: 0.95 });
     const t = new THREE.Mesh(tileGeo, mat);
     t.position.set(i * TILE - half + TILE / 2, -0.15 - rand() * 0.05, j * TILE - half + TILE / 2);
     t.receiveShadow = true;
@@ -187,3 +214,4 @@ function frame() {
 }
 frame();
 setupInventory();
+setupSkillBar();

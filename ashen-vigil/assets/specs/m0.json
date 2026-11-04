@@ -3,14 +3,38 @@
   "kinds": {
     "icon": "single game inventory icon, exactly one object centered, plain pure black background, slight top-left rim light",
     "skill": "square game skill icon, dynamic composition filling the frame, dark vignette border",
-    "texture": "top-down orthographic view, seamless tileable texture, even flat lighting, no objects casting shadows"
+    "texture": "top-down orthographic view, perfectly seamless tileable texture, edges match on all sides, uniform pattern without large features, even flat lighting, no objects casting shadows"
   },
   "items": [
-    {"id": "icon_sword", "kind": "icon", "prompt": "A weathered iron longsword with a chipped blade, plain crossguard and leather-wrapped hilt, diagonal orientation"},
-    {"id": "icon_sigil", "kind": "icon", "prompt": "A rough-cut dark gemstone with an abstract glowing ember-orange flame symbol inside, not a letter"},
-    {"id": "skill_ember_throw", "kind": "skill", "prompt": "A gauntleted hand hurling a burst of ember sparks"},
-    {"id": "skill_ash_armor", "kind": "skill", "prompt": "A knight silhouette wrapped in a swirling shell of grey ash"},
-    {"id": "tex_chapel_floor", "kind": "texture", "prompt": "Cracked dark flagstone floor of a ruined chapel with ash dust in the seams"},
-    {"id": "tex_moor_ground", "kind": "texture", "prompt": "Barren ground covered in grey ash with dead grass and scattered small stones"}
+    {
+      "id": "icon_sword",
+      "kind": "icon",
+      "prompt": "A weathered iron longsword with a chipped blade, plain crossguard and leather-wrapped hilt, diagonal orientation"
+    },
+    {
+      "id": "icon_sigil",
+      "kind": "icon",
+      "prompt": "A rough-cut dark gemstone with an abstract glowing ember-orange flame symbol inside, not a letter"
+    },
+    {
+      "id": "skill_ember_throw",
+      "kind": "skill",
+      "prompt": "A gauntleted hand hurling a burst of ember sparks"
+    },
+    {
+      "id": "skill_ash_armor",
+      "kind": "skill",
+      "prompt": "A knight silhouette wrapped in a swirling shell of grey ash"
+    },
+    {
+      "id": "tex_chapel_floor",
+      "kind": "texture",
+      "prompt": "Dark weathered stone floor of a ruined chapel, small irregular cracks and fine ash dust spread evenly, no visible tile grid or slab borders"
+    },
+    {
+      "id": "tex_moor_ground",
+      "kind": "texture",
+      "prompt": "Barren ground covered in fine grey ash with sparse short dead grass blades and tiny pebbles spread evenly, no large rocks or clumps"
+    }
   ]
 }

@@ -12,8 +12,9 @@ Spec file (JSON):
     "items": [{"id": "icon_sword", "kind": "icon", "prompt": "A worn longsword ..."}, ...]
   }
 
-Each result is saved as assets/raw/<id>.png. Items of kind "icon" are then
-passed through tools/postprocess.py (background removal, 128px).
+Each result is saved as assets/raw/<id>.png. Items of kind "icon", "skill" and "texture" are then
+passed through tools/postprocess.py (icons: background removal / frame crop, 128px;
+textures: seam blending, 512px).
 
 Env: XAI_API_KEY (optional if a host secret for api.x.ai is set), GROK_IMAGE_MODEL (default grok-imagine-image).
 Standard library + Pillow only.
@@ -118,8 +119,8 @@ def main():
             print(f"[{iid}] FAILED: {e}")
             continue
         print(f"[{iid}] saved {out.relative_to(ROOT)}")
-        if item.get("kind") == "icon":
-            subprocess.run([sys.executable, str(ROOT / "tools" / "postprocess.py"), "icon", str(out), iid], check=True)
+        if item.get("kind") in ("icon", "skill", "texture"):
+            subprocess.run([sys.executable, str(ROOT / "tools" / "postprocess.py"), item["kind"], str(out), iid], check=True)
     return 1 if failed else 0
 
 
