@@ -488,7 +488,7 @@ export function setupCombat(ctx: CombatCtx) {
           g.wander.set(g.anchor.x + rnd(-2.5, 2.5), 0, g.anchor.z + rnd(-2.5, 2.5));
         }
         tmp2.subVectors(g.wander, g.root.position).setY(0);
-        if (tmp2.length() > 0.3) { move = tmp2.normalize(); speed = 0.8; }
+        if (tmp2.length() > 0.3) { move = tmp2.clone().normalize(); speed = 0.8; }   // clone: tmp2 is reused below
         break;
       case 'chase':
         if (dead || dist > GHOUL_LEASH) { g.state = 'idle'; g.wanderT = 0; break; }
