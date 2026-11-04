@@ -2,3 +2,4 @@ build/
 *.png
 !docs/*.png
 !ashen-vigil/public/assets/**/*.png
+__pycache__/
