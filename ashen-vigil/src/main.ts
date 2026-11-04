@@ -1,5 +1,5 @@
 // Ashen Vigil — M0 skeleton: isometric camera, lit ground, braziers with
-// flames, a placeholder hero that walks to where you click, drifting ash.
+// flames, the Ash Warden walking to where you click, drifting ash.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -311,20 +311,54 @@ function respawnSpark(i: number, torch: Torch) {
   sparkVel[i * 3 + 2] = (rand() - 0.5) * 0.5;
   sparkLife[i] = 0.8 + rand() * 1.6;
 }
-// Placeholder hero: a capsule with a small ember light that follows them.
-const hero = new THREE.Group();
-const body = new THREE.Mesh(
-  new THREE.CapsuleGeometry(0.45, 1.1, 4, 12),
-  new THREE.MeshStandardMaterial({ color: 0x6e6a64, roughness: 0.6, metalness: 0.3 }),
-);
-body.position.y = 1;
-hero.add(body);
-const facing = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.5, 8), new THREE.MeshBasicMaterial({ color: 0xe8873a }));
-facing.rotation.x = Math.PI / 2;
-facing.position.set(0, 1.1, 0.55);
-hero.add(facing);
-const heroLight = new THREE.PointLight(0xffb070, 9, 9, 2);
-heroLight.position.y = 2.5;
+// Hero: the Ash Warden, two Grok paintings (three-quarter front and back)
+// on a camera-facing quad like the props; mirroring gives the other two
+// directions. Walking is faked in code: step bounce, lean into the
+// movement, a slight sway, all easing out when the hero stops.
+const HERO_H = 2.6;
+const hero = new THREE.Group();                   // sits at the feet; never rotated
+const heroPivot = new THREE.Group();              // leans back to face the camera, pivot at the feet
+heroPivot.rotation.set(PROP_TILT, PROP_YAW, 0, 'YXZ');
+hero.add(heroPivot);
+function heroMat(id: string) {
+  const tex = texLoader.load(`assets/props/${id}.png`);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return new THREE.MeshStandardMaterial({
+    map: tex, alphaTest: 0.45, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide,
+    emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
+  });
+}
+const HERO_VIEWS = { front: { mat: heroMat('hero_front'), aspect: 0.54 }, back: { mat: heroMat('hero_back'), aspect: 0.571 } };
+const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
+heroPivot.add(heroSprite);
+fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number }>) => {
+  HERO_VIEWS.front.aspect = meta.hero_front?.aspect ?? HERO_VIEWS.front.aspect;
+  HERO_VIEWS.back.aspect = meta.hero_back?.aspect ?? HERO_VIEWS.back.aspect;
+});
+// Screen directions on the ground plane: right, and "down" (toward the camera).
+const SCREEN_RIGHT = new THREE.Vector3(CAM_DIR.z, 0, -CAM_DIR.x).normalize();
+const SCREEN_DOWN = new THREE.Vector3(CAM_DIR.x, 0, CAM_DIR.z).normalize();
+const heroAnim = { view: 'front' as 'front' | 'back', flip: false, walk: 0, phase: 0, lean: 0 };
+function updateHero(dir: THREE.Vector3 | null, dt: number) {
+  if (dir) {
+    const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
+    if (Math.abs(sy) > 0.2) heroAnim.view = sy > 0 ? 'front' : 'back'; // keep the last view on near-horizontal moves
+    if (Math.abs(sx) > 0.2) heroAnim.flip = sx < 0;                    // both paintings face screen-right
+  }
+  const k = 1 - Math.exp(-dt * 8);
+  heroAnim.walk += ((dir ? 1 : 0) - heroAnim.walk) * k;
+  heroAnim.lean += ((dir ? -dir.dot(SCREEN_RIGHT) * 0.07 : 0) - heroAnim.lean) * k;
+  heroAnim.phase += dt * 9 * heroAnim.walk;
+  const v = HERO_VIEWS[heroAnim.view];
+  heroSprite.material = v.mat;
+  heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.02 * heroAnim.walk * Math.abs(Math.cos(heroAnim.phase))), 1);
+  heroSprite.position.y = Math.abs(Math.sin(heroAnim.phase)) * 0.08 * heroAnim.walk;
+  heroSprite.rotation.z = heroAnim.lean + Math.sin(heroAnim.phase) * 0.025 * heroAnim.walk;
+}
+updateHero(null, 0);
+const heroLight = new THREE.PointLight(0xffb070, 14, 9, 2);
+heroLight.position.copy(CAM_DIR).multiplyScalar(1.2).setY(2.3);   // just in front of the painted figure
 hero.add(heroLight);
 const heroShadow = new THREE.Mesh(
   new THREE.PlaneGeometry(2.2, 2.2).rotateX(-Math.PI / 2),
@@ -390,10 +424,9 @@ function frame() {
     } else {
       const step = Math.min(dist, MOVE_SPEED * dt);
       hero.position.addScaledVector(tmp.normalize(), step);
-      hero.rotation.y = Math.atan2(tmp.x, tmp.z);
     }
   }
-  body.position.y = 1 + (moving ? Math.abs(Math.sin(t * 10)) * 0.08 : 0);
+  updateHero(moving ? tmp : null, dt);
 
   const mm = marker.material as THREE.MeshBasicMaterial;
   mm.opacity = Math.max(0, mm.opacity - dt * 1.5);

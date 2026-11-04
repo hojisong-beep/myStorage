@@ -1,0 +1,21 @@
+{
+  "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
+  "kinds": {
+    "hero": "full body standing figure, slight mid-stride neutral pose, isometric three-quarter view from above (camera about 35 degrees elevation), whole figure centered with margin above the head and below the feet, plain flat even mid-grey (#808080) background with no gradient or vignette, no mid-grey coloured parts on the character, no ground, no floor, no cast shadow, soft neutral lighting from top-front"
+  },
+  "items": [
+    {
+      "id": "hero_front",
+      "kind": "hero",
+      "post": "prop",
+      "prompt": "The Ash Warden, a lone knight in scorched dark plate armour over chainmail with bright blue-grey steel highlights on every plate edge, a tattered charcoal cloak, a hooded closed helm with a narrow visor slit, a weathered iron longsword with a leather-wrapped hilt held low in the right hand, the left gauntlet open with small ember-orange flames and sparks rising from the palm, walking toward the viewer and to the viewer's left-to-right diagonal: body turned three-quarters facing the lower right of the image"
+    },
+    {
+      "id": "hero_back",
+      "kind": "hero",
+      "post": "prop",
+      "prompt": "The same knight as in the reference image, same armour, cloak, hooded helm, sword and ember hand, now seen from behind walking away from the viewer: back turned three-quarters toward the upper right of the image, cloak and back of the hood visible, face not visible, sword still in the right hand",
+      "ref": "assets/raw/hero_front.jpg"
+    }
+  ]
+}

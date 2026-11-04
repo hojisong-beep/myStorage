@@ -11,6 +11,8 @@ Spec file (JSON):
     "kinds": {"icon": "extra words for icons", ...},
     "items": [{"id": "icon_sword", "kind": "icon", "prompt": "A worn longsword ..."}, ...]
   }
+An item may set "ref" (a path under the project) to send that image to
+/images/edits as a reference, e.g. the same character from another side.
 An item may set "post" to pick the postprocess mode when its kind differs
 (e.g. kind "prop_grey" processed as "prop").
 
@@ -76,15 +78,20 @@ def fetch_image(entry):
         return r.read()
 
 
-def generate(prompt, model):
+def generate(prompt, model, ref=None):
     body = {"model": model, "prompt": prompt, "n": 1, "response_format": "b64_json"}
+    path = "/images/generations"
+    if ref:  # edit endpoint: the reference image keeps the character consistent
+        mime = "image/png" if ref.endswith(".png") else "image/jpeg"
+        body["image"] = {"url": f"data:{mime};base64," + base64.b64encode((ROOT / ref).read_bytes()).decode()}
+        path = "/images/edits"
     try:
-        data = call("/images/generations", body)
+        data = call(path, body)
     except RuntimeError as e:
         if "response_format" not in str(e):
             raise
         body.pop("response_format")  # fall back to URL output
-        data = call("/images/generations", body)
+        data = call(path, body)
     return fetch_image(data["data"][0])
 
 
@@ -115,7 +122,7 @@ def main():
         prompt = ", ".join(p for p in (item["prompt"], spec.get("kinds", {}).get(item.get("kind", ""), ""), spec.get("style", "")) if p)
         print(f"[{iid}] generating ...", flush=True)
         try:
-            Image.open(io.BytesIO(generate(prompt, model))).convert("RGB").save(out)
+            Image.open(io.BytesIO(generate(prompt, model, item.get("ref")))).convert("RGB").save(out)
         except Exception as e:  # keep going with the rest of the batch
             failed += 1
             print(f"[{iid}] FAILED: {e}")
