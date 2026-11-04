@@ -1,6 +1,7 @@
 // Ashen Vigil — M0 skeleton: isometric camera, tiled ground, torches,
 // a placeholder hero that walks to where you click, drifting ash.
 import * as THREE from 'three';
+import { setupInventory } from './inventory';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
@@ -185,3 +186,4 @@ function frame() {
   requestAnimationFrame(frame);
 }
 frame();
+setupInventory();
