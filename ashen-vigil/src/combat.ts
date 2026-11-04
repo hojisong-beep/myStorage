@@ -227,7 +227,9 @@ export function setupCombat(ctx: CombatCtx) {
     background: rgba(10,0,0,0.55); font: 600 34px/1.2 Georgia, serif; letter-spacing: 0.15em; color: #d84a2a; text-shadow: 0 2px 8px #000; }
   #mute { position: fixed; right: calc(16px + env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     font: 12px/1.4 system-ui, sans-serif; color: #8a7e70; pointer-events: none; z-index: 3; }
-  @media (max-width: 520px) { .orb { width: 52px; height: 52px; } }
+  /* narrow screens: the centred skill bar reaches the left edge, so lift the orbs above it */
+  @media (max-width: 1000px) { #orbs { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); } }
+  @media (max-width: 520px) { .orb { width: 52px; height: 52px; } #orbs { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); } }
   `;
   document.head.appendChild(style);
   const orbs = document.createElement('div');
