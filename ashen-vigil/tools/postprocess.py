@@ -122,12 +122,12 @@ def skill(src, name, size=128):
     print("wrote", out, "crop", box)
 
 
-def prop(src, name, max_w=384):
-    import json
+def key(im):
+    """Key a flat background (colour read from the border) out of an RGB
+    image. Returns (RGBA image, alpha image). See prop()."""
     import numpy as np
     from PIL import ImageDraw
 
-    im = Image.open(src).convert("RGB")
     rgb = np.asarray(im, dtype=np.float32)
     # Background colour = median of the border pixels; works for the black
     # backgrounds and for a flat grey one (keying dark objects, which would
@@ -161,6 +161,14 @@ def prop(src, name, max_w=384):
     a = np.asarray(alpha, dtype=np.float32) / 255
     rgb = np.asarray(im, dtype=np.float32)
     rgba = Image.fromarray(np.dstack([rgb, a * 255]).astype(np.uint8), "RGBA")
+    return rgba, alpha
+
+
+def prop(src, name, max_w=384):
+    import json
+
+    im = Image.open(src).convert("RGB")
+    rgba, alpha = key(im)
     bbox = alpha.point(lambda v: 255 if v > 16 else 0).getbbox()
     rgba = rgba.crop(bbox)
     if rgba.width > max_w:

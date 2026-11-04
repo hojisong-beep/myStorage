@@ -353,13 +353,35 @@ function heroMat(id: string) {
   };
   return m;
 }
-const HERO_VIEWS = { front: { mat: heroMat('hero_front'), aspect: 0.54 }, back: { mat: heroMat('hero_back'), aspect: 0.571 } };
+// Walk sheets (tools/walksheet.py, from Grok image-to-video): one row of
+// frames, played by distance travelled. Until they load, or if they fail
+// to, the painted stills with the vertex-shader walk above are used.
+interface WalkSheet { mat: THREE.MeshStandardMaterial; tex: THREE.Texture; frames: number; idle: number; aspect: number }
+interface HeroView { mat: THREE.MeshStandardMaterial; aspect: number; sheet?: WalkSheet }
+const HERO_VIEWS: Record<'front' | 'back', HeroView> = { front: { mat: heroMat('hero_front'), aspect: 0.54 }, back: { mat: heroMat('hero_back'), aspect: 0.571 } };
 const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 6, 12).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
 heroPivot.add(heroSprite);
 fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number }>) => {
   HERO_VIEWS.front.aspect = meta.hero_front?.aspect ?? HERO_VIEWS.front.aspect;
   HERO_VIEWS.back.aspect = meta.hero_back?.aspect ?? HERO_VIEWS.back.aspect;
 });
+for (const view of ['front', 'back'] as const) {
+  fetch(`assets/props/walk_${view}.json`)
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((meta: { frames: number; idle: number; aspect: number }) => {
+      texLoader.load(`assets/props/walk_${view}.png`, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+        tex.repeat.set(1 / meta.frames, 1);
+        const mat = new THREE.MeshStandardMaterial({
+          map: tex, alphaTest: 0.45, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide,
+          emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
+        });
+        HERO_VIEWS[view].sheet = { mat, tex, frames: meta.frames, idle: meta.idle, aspect: meta.aspect };
+      });
+    })
+    .catch(() => { /* keep the painted fallback */ });
+}
 // Screen directions on the ground plane: right, and "down" (toward the camera).
 const SCREEN_RIGHT = new THREE.Vector3(CAM_DIR.z, 0, -CAM_DIR.x).normalize();
 const SCREEN_DOWN = new THREE.Vector3(CAM_DIR.x, 0, CAM_DIR.z).normalize();
@@ -404,13 +426,26 @@ function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
     puffAt(hero.position.x + SCREEN_RIGHT.x * side, hero.position.z + SCREEN_RIGHT.z * side);
   }
   if (heroAnim.freeze !== null) { heroAnim.walk = 1; heroAnim.phase = heroAnim.freeze; }   // ?debug: pin a pose
-  walkUniforms.uWalk.value = heroAnim.walk;
-  walkUniforms.uPhase.value = heroAnim.phase;
   const v = HERO_VIEWS[heroAnim.view];
   const bob = Math.abs(Math.sin(heroAnim.phase)) * heroAnim.walk;          // 0 at foot contact, 1 mid-stride
-  heroSprite.material = v.mat;
-  heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.015 * (1 - bob) * heroAnim.walk), 1);
-  heroSprite.position.y = bob * 0.07;
+  const sh = v.sheet;
+  if (sh) {
+    // One loop of the sheet = one full gait cycle = two footfalls (phase 2*PI).
+    const f = heroAnim.walk > 0.05
+      ? Math.floor((((heroAnim.phase / (Math.PI * 2)) % 1) + 1) % 1 * sh.frames) % sh.frames
+      : sh.idle;
+    sh.tex.offset.x = f / sh.frames;
+    heroSprite.material = sh.mat;
+    walkUniforms.uWalk.value = 0;                                           // the frames carry the motion
+    heroSprite.scale.set(HERO_H * sh.aspect * (heroAnim.flip ? -1 : 1), HERO_H, 1);
+    heroSprite.position.y = 0;
+  } else {
+    walkUniforms.uWalk.value = heroAnim.walk;
+    walkUniforms.uPhase.value = heroAnim.phase;
+    heroSprite.material = v.mat;
+    heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.015 * (1 - bob) * heroAnim.walk), 1);
+    heroSprite.position.y = bob * 0.07;
+  }
   heroSprite.rotation.z = heroAnim.lean;
   heroShadow.scale.setScalar(1 - 0.12 * bob);                             // shadow tightens as the body rises
   for (const p of puffs) {

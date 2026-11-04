@@ -1,0 +1,18 @@
+{
+ "frames": 12,
+ "idle": 8,
+ "cellW": 311,
+ "cellH": 320,
+ "aspect": 0.9719,
+ "anchor": [
+  0.5,
+  0.0052
+ ],
+ "source": "assets/raw/video/walk_front.mp4",
+ "loop": {
+  "start": 52,
+  "period": 24,
+  "endDiff": 0.0145,
+  "legMotion": 0.1661
+ }
+}
