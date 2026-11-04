@@ -109,6 +109,7 @@ export function setupInventory() {
 
   const panel = document.createElement('div');
   panel.id = 'inv';
+  panel.hidden = true;   // closed at start so the hero stays visible; I opens it
   panel.innerHTML = '<h2>장비 · 소지품</h2><div class="equip"></div><div class="bag"></div><div class="gold">금화 1,284 · 표시된 아이템은 시안용 예시입니다</div>';
   document.body.appendChild(panel);
   // Clicks on the panel should not move the hero.
@@ -134,5 +135,6 @@ export function setupInventory() {
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'i' || e.key === 'I' || e.key === 'ㅑ') { panel.hidden = !panel.hidden; tip.hidden = true; }
+    else if (e.key === 'Escape' && !panel.hidden) { panel.hidden = true; tip.hidden = true; }
   });
 }
