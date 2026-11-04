@@ -10,7 +10,7 @@ import { setupSkillBar } from './skillbar';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
-const MOVE_SPEED = 6;     // units per second
+const MOVE_SPEED = 5;     // units per second (about three footfalls per second at STRIDE)
 const VIEW = 18;          // orthographic view height in world units
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -313,24 +313,48 @@ function respawnSpark(i: number, torch: Torch) {
 }
 // Hero: the Ash Warden, two Grok paintings (three-quarter front and back)
 // on a camera-facing quad like the props; mirroring gives the other two
-// directions. Walking is faked in code: step bounce, lean into the
-// movement, a slight sway, all easing out when the hero stops.
+// directions. The walk is driven by distance travelled, not time, so the
+// stride matches the ground speed: the quad is subdivided and a vertex
+// shader swings the lower body (legs in opposite phase, the swinging foot
+// lifted) and lets the cloak trail behind; plus bounce, lean, ash puffs at
+// each footfall and a breathing shadow. Everything eases out on stopping.
 const HERO_H = 2.6;
+const STRIDE = 1.6;                                // world units per footfall (two per full cycle)
 const hero = new THREE.Group();                   // sits at the feet; never rotated
 const heroPivot = new THREE.Group();              // leans back to face the camera, pivot at the feet
 heroPivot.rotation.set(PROP_TILT, PROP_YAW, 0, 'YXZ');
 hero.add(heroPivot);
+const walkUniforms = { uWalk: { value: 0 }, uPhase: { value: 0 } };
 function heroMat(id: string) {
   const tex = texLoader.load(`assets/props/${id}.png`);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return new THREE.MeshStandardMaterial({
+  const m = new THREE.MeshStandardMaterial({
     map: tex, alphaTest: 0.45, roughness: 0.7, metalness: 0.2, side: THREE.DoubleSide,
     emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25,
   });
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, walkUniforms);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uWalk;\nuniform float uPhase;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+      {
+        // uv.y: 0 at the feet, 1 at the top. side: -1 left half, +1 right half, 0 at the centre (no tear).
+        float h = uv.y;
+        float side = clamp((uv.x - 0.5) * 5.0, -1.0, 1.0);
+        float legs = 1.0 - smoothstep(0.0, 0.36, h);          // fades out by the hips
+        float feet = 1.0 - smoothstep(0.0, 0.14, h);
+        float sw = sin(uPhase);
+        transformed.x += side * sw * 0.085 * legs * uWalk;              // legs scissor
+        transformed.y += max(0.0, -side * sw) * 0.06 * feet * uWalk;   // the swinging foot lifts
+        float cloak = (1.0 - smoothstep(0.05, 0.62, h)) * abs(side);
+        transformed.x += sin(uPhase - 1.3) * 0.03 * cloak * uWalk;      // cloak trails the stride
+      }`);
+  };
+  return m;
 }
 const HERO_VIEWS = { front: { mat: heroMat('hero_front'), aspect: 0.54 }, back: { mat: heroMat('hero_back'), aspect: 0.571 } };
-const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
+const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 6, 12).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
 heroPivot.add(heroSprite);
 fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number }>) => {
   HERO_VIEWS.front.aspect = meta.hero_front?.aspect ?? HERO_VIEWS.front.aspect;
@@ -339,8 +363,26 @@ fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string
 // Screen directions on the ground plane: right, and "down" (toward the camera).
 const SCREEN_RIGHT = new THREE.Vector3(CAM_DIR.z, 0, -CAM_DIR.x).normalize();
 const SCREEN_DOWN = new THREE.Vector3(CAM_DIR.x, 0, CAM_DIR.z).normalize();
-const heroAnim = { view: 'front' as 'front' | 'back', flip: false, walk: 0, phase: 0, lean: 0 };
-function updateHero(dir: THREE.Vector3 | null, dt: number) {
+
+// Ash puffs kicked up at each footfall.
+const PUFFS = 10;
+const puffs: { s: THREE.Sprite; life: number }[] = [];
+for (let i = 0; i < PUFFS; i++) {
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x8a8580, transparent: true, opacity: 0, depthWrite: false }));
+  s.visible = false;
+  scene.add(s);
+  puffs.push({ s, life: 0 });
+}
+let nextPuff = 0;
+function puffAt(x: number, z: number) {
+  const p = puffs[nextPuff++ % PUFFS];
+  p.life = 0.6;
+  p.s.position.set(x, 0.15, z);
+  p.s.visible = true;
+}
+
+const heroAnim = { view: 'front' as 'front' | 'back', flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
+function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
   if (dir) {
     const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
     if (Math.abs(sy) > 0.2) heroAnim.view = sy > 0 ? 'front' : 'back'; // keep the last view on near-horizontal moves
@@ -348,15 +390,39 @@ function updateHero(dir: THREE.Vector3 | null, dt: number) {
   }
   const k = 1 - Math.exp(-dt * 8);
   heroAnim.walk += ((dir ? 1 : 0) - heroAnim.walk) * k;
-  heroAnim.lean += ((dir ? -dir.dot(SCREEN_RIGHT) * 0.07 : 0) - heroAnim.lean) * k;
-  heroAnim.phase += dt * 9 * heroAnim.walk;
+  heroAnim.lean += ((dir ? -dir.dot(SCREEN_RIGHT) * 0.06 : 0) - heroAnim.lean) * k;
+  // Phase follows distance: half a cycle (PI) per footfall. When stopped, ease
+  // the phase to the nearest contact pose so the legs settle together.
+  const before = Math.floor(heroAnim.phase / Math.PI);
+  if (moved > 0) heroAnim.phase += (moved / STRIDE) * Math.PI;
+  else {
+    const rest = Math.round(heroAnim.phase / Math.PI) * Math.PI;
+    heroAnim.phase += (rest - heroAnim.phase) * k;
+  }
+  if (moved > 0 && Math.floor(heroAnim.phase / Math.PI) !== before) {
+    const side = (Math.floor(heroAnim.phase / Math.PI) % 2 ? 1 : -1) * 0.25;
+    puffAt(hero.position.x + SCREEN_RIGHT.x * side, hero.position.z + SCREEN_RIGHT.z * side);
+  }
+  if (heroAnim.freeze !== null) { heroAnim.walk = 1; heroAnim.phase = heroAnim.freeze; }   // ?debug: pin a pose
+  walkUniforms.uWalk.value = heroAnim.walk;
+  walkUniforms.uPhase.value = heroAnim.phase;
   const v = HERO_VIEWS[heroAnim.view];
+  const bob = Math.abs(Math.sin(heroAnim.phase)) * heroAnim.walk;          // 0 at foot contact, 1 mid-stride
   heroSprite.material = v.mat;
-  heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.02 * heroAnim.walk * Math.abs(Math.cos(heroAnim.phase))), 1);
-  heroSprite.position.y = Math.abs(Math.sin(heroAnim.phase)) * 0.08 * heroAnim.walk;
-  heroSprite.rotation.z = heroAnim.lean + Math.sin(heroAnim.phase) * 0.025 * heroAnim.walk;
+  heroSprite.scale.set(HERO_H * v.aspect * (heroAnim.flip ? -1 : 1), HERO_H * (1 - 0.015 * (1 - bob) * heroAnim.walk), 1);
+  heroSprite.position.y = bob * 0.07;
+  heroSprite.rotation.z = heroAnim.lean;
+  heroShadow.scale.setScalar(1 - 0.12 * bob);                             // shadow tightens as the body rises
+  for (const p of puffs) {
+    if (p.life <= 0) continue;
+    p.life -= dt;
+    const t = 1 - p.life / 0.6;
+    p.s.scale.setScalar(0.35 + t * 0.6);
+    p.s.position.y = 0.15 + t * 0.25;
+    p.s.material.opacity = 0.35 * (1 - t);
+    if (p.life <= 0) p.s.visible = false;
+  }
 }
-updateHero(null, 0);
 const heroLight = new THREE.PointLight(0xffb070, 14, 9, 2);
 heroLight.position.copy(CAM_DIR).multiplyScalar(1.2).setY(2.3);   // just in front of the painted figure
 hero.add(heroLight);
@@ -366,6 +432,9 @@ const heroShadow = new THREE.Mesh(
 );
 heroShadow.position.y = 0.03;
 hero.add(heroShadow);
+updateHero(null, 0, 0);
+// ?debug exposes the walk state so screenshots can pin a phase.
+if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__walk = { heroAnim, walkUniforms };
 scene.add(hero);
 
 // Click target marker.
@@ -416,17 +485,18 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
 
+  let step = 0;
   if (moving) {
     tmp.subVectors(target, hero.position).setY(0);
     const dist = tmp.length();
     if (dist < 0.05) {
       moving = false;
     } else {
-      const step = Math.min(dist, MOVE_SPEED * dt);
+      step = Math.min(dist, MOVE_SPEED * dt);
       hero.position.addScaledVector(tmp.normalize(), step);
     }
   }
-  updateHero(moving ? tmp : null, dt);
+  updateHero(moving ? tmp : null, step, dt);
 
   const mm = marker.material as THREE.MeshBasicMaterial;
   mm.opacity = Math.max(0, mm.opacity - dt * 1.5);
