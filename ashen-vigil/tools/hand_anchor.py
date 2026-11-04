@@ -34,13 +34,13 @@ def ember(rgba):
 def main():
     meta_path = PROPS / "props.json"
     meta = json.loads(meta_path.read_text())
-    for name in ("hero_front", "hero_back"):
+    for name in ("hero_front", "hero_back", "hero_side"):
         e = ember(Image.open(PROPS / f"{name}.png"))
         print(name, e)
         if e:
             meta[name]["hand"] = e[:2]
     meta_path.write_text(json.dumps(dict(sorted(meta.items())), indent=1) + "\n")
-    for name in ("walk_front", "walk_back"):
+    for name in ("walk_front", "walk_back", "walk_side"):
         jp = PROPS / f"{name}.json"
         sj = json.loads(jp.read_text())
         sheet = Image.open(PROPS / f"{name}.png")

@@ -10,7 +10,7 @@ import { setupSkillBar } from './skillbar';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
-const MOVE_SPEED = 5;     // units per second (about three footfalls per second at STRIDE)
+const MOVE_SPEED = 4.2;   // units per second; slow enough that the walk sheets do not race
 const VIEW = 18;          // orthographic view height in world units
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -319,7 +319,7 @@ function respawnSpark(i: number, torch: Torch) {
 // lifted) and lets the cloak trail behind; plus bounce, lean, ash puffs at
 // each footfall and a breathing shadow. Everything eases out on stopping.
 const HERO_H = 2.6;
-const STRIDE = 1.6;                                // world units per footfall (two per full cycle)
+const STRIDE = 1.6;                                // world units per footfall (two per full cycle); per view below
 const hero = new THREE.Group();                   // sits at the feet; never rotated
 const heroPivot = new THREE.Group();              // leans back to face the camera, pivot at the feet
 heroPivot.rotation.set(PROP_TILT, PROP_YAW, 0, 'YXZ');
@@ -365,20 +365,25 @@ const heroMat = (id: string) => heroMaterial(texLoader.load(`assets/props/${id}.
 // to, the painted stills with the vertex-shader walk above are used.
 type UV = [number, number];   // across the image, and up from its bottom
 interface WalkSheet { mat: THREE.MeshStandardMaterial; tex: THREE.Texture; frames: number; idle: number; aspect: number; hands: UV[] }
-interface HeroView { mat: THREE.MeshStandardMaterial; aspect: number; hand: UV; sheet?: WalkSheet }
-const HERO_VIEWS: Record<'front' | 'back', HeroView> = {
-  front: { mat: heroMat('hero_front'), aspect: 0.54, hand: [0.9, 0.61] },
-  back: { mat: heroMat('hero_back'), aspect: 0.571, hand: [0.07, 0.63] },
+// facesRight: which way the source image faces on screen (mirroring flips it).
+// stride: world units per footfall for this view's walk sheet, measured from
+// how far its feet travel per step, so feet do not slide.
+interface HeroView { mat: THREE.MeshStandardMaterial; aspect: number; hand: UV; facesRight: boolean; stride: number; sheet?: WalkSheet }
+type ViewId = 'front' | 'back' | 'side';
+const HERO_VIEWS: Record<ViewId, HeroView> = {
+  front: { mat: heroMat('hero_front'), aspect: 0.494, hand: [0.92, 0.61], facesRight: true, stride: STRIDE },
+  back: { mat: heroMat('hero_back'), aspect: 0.51, hand: [0.11, 0.67], facesRight: true, stride: STRIDE },
+  side: { mat: heroMat('hero_side'), aspect: 0.444, hand: [0.07, 0.58], facesRight: false, stride: 1.3 },
 };
 const heroSprite = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 6, 12).translate(0, 0.5, 0), HERO_VIEWS.front.mat);
 heroPivot.add(heroSprite);
 fetch('assets/props/props.json').then((r) => r.json()).then((meta: Record<string, { aspect: number; hand?: UV }>) => {
-  for (const view of ['front', 'back'] as const) {
+  for (const view of ['front', 'back', 'side'] as const) {
     const m = meta[`hero_${view}`];
     if (m) { HERO_VIEWS[view].aspect = m.aspect; if (m.hand) HERO_VIEWS[view].hand = m.hand; }
   }
 });
-for (const view of ['front', 'back'] as const) {
+for (const view of ['front', 'back', 'side'] as const) {
   fetch(`assets/props/walk_${view}.json`)
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((meta: { frames: number; idle: number; aspect: number; hand?: UV[] }) => {
@@ -446,20 +451,55 @@ scene.add(handSparks);
 const handPos = new THREE.Vector3();
 let heroTime = 0;
 
-const heroAnim = { view: 'front' as 'front' | 'back', flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
+// Crossfade on a change of view or facing: a copy of the previous look fades
+// out over ~100 ms on top of the new one.
+const ghostMesh = new THREE.Mesh<THREE.BufferGeometry, THREE.Material>(heroSprite.geometry, new THREE.MeshBasicMaterial({ visible: false }));
+heroPivot.add(ghostMesh);
+let ghostLife = 0;
+let ghostTex: THREE.Texture | null = null;
+const GHOST_TIME = 0.1;
+let lastView: ViewId = 'front';
+let lastFlip = false;
+function startCrossfade() {
+  const src = heroSprite.material as THREE.MeshStandardMaterial;
+  ghostMesh.material.dispose();
+  ghostTex?.dispose();
+  const g = src.clone();
+  ghostTex = src.map ? src.map.clone() : null;                           // freeze the sheet frame it was showing
+  if (ghostTex) { g.map = ghostTex; g.emissiveMap = ghostTex; }
+  g.transparent = true;
+  g.alphaTest = 0.02;
+  g.depthWrite = false;
+  ghostMesh.material = g;
+  ghostMesh.position.copy(heroSprite.position);
+  ghostMesh.rotation.copy(heroSprite.rotation);
+  ghostMesh.scale.copy(heroSprite.scale);
+  ghostMesh.renderOrder = 1;
+  ghostLife = GHOST_TIME;
+}
+const heroAnim = { view: 'front' as ViewId, faceRight: true, flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
 function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
   if (dir) {
     const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
-    if (Math.abs(sy) > 0.2) heroAnim.view = sy > 0 ? 'front' : 'back'; // keep the last view on near-horizontal moves
-    if (Math.abs(sx) > 0.2) heroAnim.flip = sx < 0;                    // both paintings face screen-right
+    // Screen angle above the horizontal: within about 35 degrees use the side
+    // view, otherwise front (moving down) or back (moving up). The band edge
+    // shifts by 5 degrees depending on the current view so it does not flicker.
+    const elev = Math.asin(Math.min(1, Math.abs(sy) / Math.hypot(sx, sy)));
+    const edge = THREE.MathUtils.degToRad(heroAnim.view === 'side' ? 40 : 30);
+    heroAnim.view = elev < edge ? 'side' : sy > 0 ? 'front' : 'back';
+    if (Math.abs(sx) > 0.15) heroAnim.faceRight = sx > 0;               // straight up/down keeps the last facing
   }
+  heroAnim.flip = heroAnim.faceRight !== HERO_VIEWS[heroAnim.view].facesRight;
+  if (heroAnim.view !== lastView || heroAnim.flip !== lastFlip) startCrossfade();
+  lastView = heroAnim.view;
+  lastFlip = heroAnim.flip;
   const k = 1 - Math.exp(-dt * 8);
   heroAnim.walk += ((dir ? 1 : 0) - heroAnim.walk) * k;
   heroAnim.lean += ((dir ? -dir.dot(SCREEN_RIGHT) * 0.06 : 0) - heroAnim.lean) * k;
   // Phase follows distance: half a cycle (PI) per footfall. When stopped, ease
   // the phase to the nearest contact pose so the legs settle together.
   const before = Math.floor(heroAnim.phase / Math.PI);
-  if (moved > 0) heroAnim.phase += (moved / STRIDE) * Math.PI;
+  if (moved > 0) heroAnim.phase += (moved / HERO_VIEWS[heroAnim.view].stride) * Math.PI;
   else {
     const rest = Math.round(heroAnim.phase / Math.PI) * Math.PI;
     heroAnim.phase += (rest - heroAnim.phase) * k;
@@ -533,6 +573,9 @@ function updateHero(dir: THREE.Vector3 | null, moved: number, dt: number) {
     handSparkPos[i * 3 + 2] += handSparkVel[i * 3 + 2] * dt;
   }
   handSparkGeo.attributes.position.needsUpdate = true;
+  ghostLife = Math.max(0, ghostLife - dt);
+  ghostMesh.visible = ghostLife > 0;
+  (ghostMesh.material as THREE.Material).opacity = ghostLife / GHOST_TIME;
   for (const p of puffs) {
     if (p.life <= 0) continue;
     p.life -= dt;
@@ -554,7 +597,7 @@ heroShadow.position.y = 0.03;
 hero.add(heroShadow);
 updateHero(null, 0, 0);
 // ?debug exposes the walk state so screenshots can pin a phase.
-if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__walk = { heroAnim, walkUniforms };
+if (location.search.includes('debug')) (window as unknown as Record<string, unknown>).__walk = { heroAnim, walkUniforms, hero, get target() { return target; } };
 scene.add(hero);
 
 // Click target marker.

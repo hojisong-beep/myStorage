@@ -1,0 +1,29 @@
+{
+  "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
+  "kinds": {
+    "hero": "full body standing figure, slight mid-stride neutral pose, isometric three-quarter view from above (camera about 35 degrees elevation), whole figure centered with margin above the head and below the feet, plain flat even mid-grey (#808080) background with no gradient or vignette, no mid-grey coloured parts on the character, no ground, no floor, no cast shadow, soft neutral lighting from top-front"
+  },
+  "items": [
+    {
+      "id": "hero2_front",
+      "kind": "hero",
+      "post": "prop",
+      "ref": "assets/raw/hero_front.jpg",
+      "prompt": "The same knight as in the reference image, same armour, same tattered charcoal cloak, same hooded closed helm, same ember-orange flames rising from the open left gauntlet. The longsword is now sheathed in a dark brown leather scabbard with steel fittings, worn on the left hip and hanging close against the body; the sword hilt has a dark leather grip and a bright steel crossguard; the right hand is empty and relaxed at his side. Same three-quarter view facing the lower right of the image, full body, mid-stride neutral pose"
+    },
+    {
+      "id": "hero2_back",
+      "kind": "hero",
+      "post": "prop",
+      "ref": "assets/raw/hero2_front.jpg",
+      "prompt": "The same knight as in the reference image, same armour, same tattered charcoal cloak, same hooded closed helm, same ember-orange flames rising from the open left gauntlet. The longsword is now sheathed in a dark brown leather scabbard with steel fittings, worn on the left hip and hanging close against the body; the sword hilt has a dark leather grip and a bright steel crossguard; the right hand is empty and relaxed at his side, now seen from behind walking away from the viewer: back turned three-quarters toward the upper right of the image, cloak and back of the hood visible, the scabbard visible at his hip, face not visible, full body"
+    },
+    {
+      "id": "hero2_side",
+      "kind": "hero",
+      "post": "prop",
+      "ref": "assets/raw/hero2_front.jpg",
+      "prompt": "The same knight as in the reference image, same armour, same tattered charcoal cloak, same hooded closed helm, same ember-orange flames rising from the open left gauntlet. The longsword is now sheathed in a dark brown leather scabbard with steel fittings, worn on the left hip and hanging close against the body; the sword hilt has a dark leather grip and a bright steel crossguard; the right hand is empty and relaxed at his side, now in a perfect side profile facing right, walking neutral pose, the ember hand and the scabbard both visible, full body"
+    }
+  ]
+}

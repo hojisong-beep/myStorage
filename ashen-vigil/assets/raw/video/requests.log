@@ -1,3 +1,8 @@
 walk_front 9c3333b6-227a-9df4-bcc4-b1f33340a67f
 walk_back(v1, rejected) 1023e340-07ab-9b6e-94a7-8871ba18505b
 walk_back 64b3c86e-6d1e-9aa0-9c9f-4b5704be0463
+walk2_back 6472d2ef-cd07-9b03-a736-76d238528fc5
+walk2_side(rejected: loop pop, ember vanished) 6716876a-e547-9a83-a184-4fa0b323cf96
+walk2_front(rejected: turned left, ember vanished) 8dc634e1-df42-95db-b673-81cdd1160da9
+walk3_front 45f57cc8-7f05-94ba-9437-ba1dc4e17c44
+walk3_side cdb7bdae-a315-9046-ba25-cbf4b4423bd7

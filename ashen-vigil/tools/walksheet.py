@@ -67,8 +67,10 @@ def main():
     # from the start; reject loops where the legs barely move.
     n = len(keyed)
     best = None
+    # Skip the first half second: the clip starts on the input still and
+    # eases into the walk, so those frames do not belong in a loop.
     for p in range(12, min(40, n // 2)):
-        for s in range(0, n - p):
+        for s in range(min(12, n - p - 1), n - p):
             close = np.abs(full[s] - full[s + p]).mean()
             motion = np.abs(lower[s:s + p] - lower[s]).mean(axis=(1, 2)).max()
             score = close / max(motion, 1e-3)
