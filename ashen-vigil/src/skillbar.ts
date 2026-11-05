@@ -10,8 +10,8 @@ const SKILLS: Skill[] = [
   { icon: 'skill_ash_armor', name: '재의 갑주', desc: '6초 동안 받는 피해 30% 감소', cooldown: 12 },
   { icon: null, name: '', desc: '', cooldown: 0 },
   { icon: null, name: '', desc: '', cooldown: 0 },
-  { icon: 'icon_potion_hp', name: '체력 물약', desc: '체력 60 회복', cooldown: 8 },
-  { icon: 'icon_potion_mp', name: '마나 물약', desc: '마나 40 회복 (아직 사용할 수 없음)', cooldown: 3, disabled: true },
+  { icon: 'icon_potion_hp', name: '체력 물약', desc: '체력 60 회복 (가방의 물약 사용)', cooldown: 8 },
+  { icon: 'icon_potion_mp', name: '마나 물약', desc: '마나 40 회복', cooldown: 3 },
 ];
 
 const css = `
@@ -25,6 +25,7 @@ const css = `
 #skills .s .cd { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.65); pointer-events: none; }
 #skills .s.flash { outline: 2px solid #e8873a; }
 #skills .s.off img { filter: grayscale(1) brightness(0.45); }
+#skills .s .n { position: absolute; right: 3px; bottom: 1px; font: 600 11px/1.2 system-ui, sans-serif; color: #f0e4d4; text-shadow: 0 1px 2px #000; }
 #skills .s:hover { border-color: #e8873a; }
 @media (max-width: 520px) { #skills .s { width: 40px; height: 40px; } #hud { display: none; } }
 `;
@@ -32,6 +33,18 @@ const css = `
 const actions: (() => boolean)[] = [];
 /** Give slot i (0-based) an action; return false from it when nothing happened. */
 export function setSkillAction(i: number, fn: () => boolean) { actions[i] = fn; }
+
+let slotsRef: { el: HTMLElement; sk: Skill }[] = [];
+/** Show a count on slot i (potions) and grey it out at zero. */
+export function setSkillCount(i: number, n: number) {
+  const s = slotsRef[i];
+  if (!s) return;
+  s.sk.disabled = n <= 0;
+  s.el.classList.toggle('off', n <= 0);
+  let badge = s.el.querySelector('.n') as HTMLElement | null;
+  if (!badge) { badge = document.createElement('span'); badge.className = 'n'; s.el.appendChild(badge); }
+  badge.textContent = String(n);
+}
 
 export function setupSkillBar() {
   const style = document.createElement('style');
@@ -65,6 +78,7 @@ export function setupSkillBar() {
     bar.appendChild(el);
     return { el, cd, until: 0, sk };
   });
+  slotsRef = slots;
 
   function use(i: number) {
     const s = slots[i];

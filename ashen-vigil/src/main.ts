@@ -6,12 +6,16 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { setupInventory } from './inventory';
-import { setupSkillBar, setSkillAction } from './skillbar';
+import { setupLoot } from './loot';
+import { player } from './stats';
+import { loadGame, saveNow, startAutosave, wipeSave } from './save';
+import { makeItem, makeUnique, rollDrop } from './items';
+import { XP } from './data/balance';
+import { setupSkillBar, setSkillAction, setSkillCount } from './skillbar';
 import { setupCombat } from './combat';
 
 const TILE = 2;           // world units per floor tile
 const GRID = 24;          // tiles per side
-const MOVE_SPEED = 4.2;   // units per second; slow enough that the walk sheets do not race
 const VIEW = 18;          // orthographic view height in world units
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -645,14 +649,18 @@ function moveTo(p: THREE.Vector3, showMarker: boolean) {
 }
 // Click: a ghoul -> attack it (walk into range, then swing); the floor -> walk.
 // Holding the button keeps attacking the same ghoul, or keeps steering the walk.
+// Ground loot under the cursor wins over ghouls, which win over the floor.
 function pick(ev: PointerEvent, first: boolean) {
   if (combat.isDead()) return;
   const ground = groundAt(ev);
   if (first) {
+    const item = loot.pickAt(ev.clientX, ev.clientY);
+    if (item) { combat.setTarget(null); loot.setTarget(item); return; }
+    loot.setTarget(null);
     const g = combat.pickGhoul(ev.clientX, ev.clientY, ground);
     combat.setTarget(g);
     if (g) return;
-  } else if (combat.hasTarget()) return;
+  } else if (combat.hasTarget() || loot.hasTarget()) return;
   if (ground) moveTo(ground, true);
 }
 renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 0) { mouseDown = true; pick(e, true); } });
@@ -660,6 +668,12 @@ renderer.domElement.addEventListener('pointermove', (e) => { if (mouseDown) pick
 window.addEventListener('pointerup', () => { mouseDown = false; });
 
 const HERO_START = new THREE.Vector3(0, 0, 0);
+const loadedFrom = loadGame();
+const loot = setupLoot({
+  scene, camera, texLoader, glowTex, hero,
+  moveHeroTo: (p) => moveTo(p, false),
+  stopHero: () => { moving = false; },
+});
 const combat = setupCombat({
   scene, camera, texLoader, maxAnisotropy: renderer.capabilities.getMaxAnisotropy(), glowTex, shadowTex,
   camDir: CAM_DIR, propTilt: PROP_TILT, propYaw: PROP_YAW, screenRight: SCREEN_RIGHT, screenDown: SCREEN_DOWN,
@@ -667,9 +681,23 @@ const combat = setupCombat({
   moveHeroTo: (p) => moveTo(p, false),
   stopHero: () => { moving = false; },
   faceHero: (dir) => faceToward(dir),
+  onKill: (at, level) => {
+    const r = rollDrop(level);
+    const item = r.drops.find((d) => d.kind === 'item');
+    const gold = r.drops.find((d) => d.kind === 'gold');
+    loot.log.push({
+      outcome: r.outcome,
+      rarity: item?.kind === 'item' ? item.item.rarity : undefined,
+      gold: gold?.kind === 'gold' ? gold.amount : undefined,
+      name: r.drops.map((d) => (d.kind === 'item' ? d.item.name : `금화 ${d.amount}`)).join(', '),
+    });
+    loot.spawn(r.drops, at);
+    player.gainXp(XP.ghoul * level);
+  },
 });
-setSkillAction(4, () => combat.drinkPotion());
-if (location.search.includes('debug')) Object.assign(window as unknown as Record<string, unknown>, { __combat: combat.debug, __renderer: renderer });
+player.onChange((why) => { if (why === 'levelup') combat.levelUpFx(); });
+let moveSpeed = player.derived().moveSpeed;
+player.onChange(() => { moveSpeed = player.derived().moveSpeed; });
 
 const clock = new THREE.Clock();
 const tmp = new THREE.Vector3();
@@ -685,12 +713,13 @@ function frame() {
     if (dist < 0.05) {
       moving = false;
     } else {
-      step = Math.min(dist, MOVE_SPEED * dt);
+      step = Math.min(dist, moveSpeed * dt);
       hero.position.addScaledVector(tmp.normalize(), step);
     }
   }
   updateHero(moving ? tmp : null, step, dt);
   combat.update(dt, realDt);
+  loot.update(dt);
 
   const mm = marker.material as THREE.MeshBasicMaterial;
   mm.opacity = Math.max(0, mm.opacity - dt * 1.5);
@@ -738,5 +767,21 @@ function frame() {
   requestAnimationFrame(frame);
 }
 frame();
-setupInventory();
+const inventory = setupInventory({
+  onDropToWorld: (it) => loot.dropAtHero(it),
+  onNewGame: () => { wipeSave(); player.reset(); hero.position.copy(HERO_START); moving = false; saveNow(); },
+});
 setupSkillBar();
+setSkillAction(4, () => combat.drinkPotion('potion_hp'));
+setSkillAction(5, () => combat.drinkPotion('potion_mp'));
+const showPotions = () => { setSkillCount(4, player.count('potion_hp')); setSkillCount(5, player.count('potion_mp')); };
+player.onChange(showPotions);
+showPotions();
+startAutosave();
+if (location.search.includes('debug')) {
+  // test hooks only (not reachable from the UI)
+  Object.assign(window as unknown as Record<string, unknown>, {
+    __combat: combat.debug, __renderer: renderer,
+    __av: { player, loot: loot.debug, lootApi: loot, combat, lootLog: loot.log, inventory, saveNow, makeItem, makeUnique, rollDrop, loadedFrom },
+  });
+}

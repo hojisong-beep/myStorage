@@ -6,6 +6,9 @@
 // strike. Hits get hit-stop, a white flash, knockback, sparks, screen shake,
 // floating numbers and a procedural sound.
 import * as THREE from 'three';
+import { sfx } from './audio';
+import { xpToNext, XP } from './data/balance';
+import { player } from './stats';
 
 export interface CombatCtx {
   scene: THREE.Scene;
@@ -23,20 +26,17 @@ export interface CombatCtx {
   heroPivot: THREE.Group;
   heroStart: THREE.Vector3;
   moveHeroTo(p: THREE.Vector3): void;
+  onKill(at: THREE.Vector3, monsterLevel: number): void;
   stopHero(): void;
   faceHero(dir: THREE.Vector3): void;
 }
 
 // --- tuning --------------------------------------------------------------
-const HERO_HP = 100;
-const HERO_MP = 50;
 const HERO_RANGE = 1.8;
-const SWING_TIME = 0.55;
 const SWING_IMPACT = 0.11;          // seconds into the swing when the blade lands
-const HERO_DMG: [number, number] = [8, 14];
-const CRIT_CHANCE = 0.1;
-const CRIT_MULT = 1.6;
-const POTION_HEAL = 60;
+// Hero damage, swing period, crit, defence and max HP/MP come from stats.ts (player.derived()).
+const RESPAWN_TIME = 90;
+const RESPAWN_MIN_DIST = 20;
 
 const GHOUL_HP = 60;
 const GHOUL_SPEED = 2.4;
@@ -55,71 +55,6 @@ const GROUPS: { at: [number, number]; n: number }[] = [
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const irnd = (a: number, b: number) => Math.floor(rnd(a, b + 1));
-
-// --- sound (Web Audio, procedural; starts after the first input) --------
-class Sfx {
-  ctx: AudioContext | null = null;
-  out: GainNode | null = null;
-  muted = false;
-  noise: AudioBuffer | null = null;
-  start() {
-    if (this.ctx) return;
-    const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AC) return;
-    this.ctx = new AC();
-    this.out = this.ctx.createGain();
-    this.out.gain.value = this.muted ? 0 : 0.5;
-    this.out.connect(this.ctx.destination);
-    const len = this.ctx.sampleRate;
-    this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
-    const d = this.noise.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  }
-  toggle() {
-    this.muted = !this.muted;
-    if (this.out) this.out.gain.value = this.muted ? 0 : 0.5;
-    return this.muted;
-  }
-  private env(g: GainNode, t: number, a: number, peak: number, d: number) {
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + a);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
-  }
-  private burst(type: BiquadFilterType, f0: number, f1: number, dur: number, peak: number) {
-    if (!this.ctx || !this.out || !this.noise) return;
-    const t = this.ctx.currentTime;
-    const src = this.ctx.createBufferSource();
-    src.buffer = this.noise;
-    const f = this.ctx.createBiquadFilter();
-    f.type = type;
-    f.frequency.setValueAtTime(f0, t);
-    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    f.Q.value = 1.2;
-    const g = this.ctx.createGain();
-    this.env(g, t, 0.01, peak, dur);
-    src.connect(f).connect(g).connect(this.out);
-    src.start(t, Math.random() * 0.5);
-    src.stop(t + dur + 0.05);
-  }
-  private tone(type: OscillatorType, f0: number, f1: number, dur: number, peak: number, delay = 0) {
-    if (!this.ctx || !this.out) return;
-    const t = this.ctx.currentTime + delay;
-    const o = this.ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(f0, t);
-    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
-    const g = this.ctx.createGain();
-    this.env(g, t, 0.005, peak, dur);
-    o.connect(g).connect(this.out);
-    o.start(t);
-    o.stop(t + dur + 0.05);
-  }
-  swing() { this.burst('bandpass', 900, 2600, 0.16, 0.35); }
-  hit() { this.tone('sine', 140, 55, 0.12, 0.8); this.burst('lowpass', 2200, 300, 0.09, 0.5); }
-  crit() { this.hit(); this.tone('triangle', 1400, 900, 0.18, 0.25, 0.01); }
-  death() { this.burst('lowpass', 1200, 80, 0.7, 0.5); this.tone('sawtooth', 110, 40, 0.5, 0.15); }
-  hurt() { this.tone('square', 220, 90, 0.14, 0.18); this.burst('lowpass', 900, 200, 0.12, 0.35); }
-}
 
 // --- procedural textures --------------------------------------------------
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void) {
@@ -194,14 +129,11 @@ interface Ghoul {
   knock: THREE.Vector3; stagger: number; flash: number; lunge: number;
   tele: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   bar: HTMLDivElement; barFill: HTMLDivElement; barT: number; deathT: number; shadow: THREE.Mesh;
+  home: THREE.Vector3; respawnT: number; ember: THREE.Sprite | null;
 }
 
 export function setupCombat(ctx: CombatCtx) {
   const { scene, camera } = ctx;
-  const sfx = new Sfx();
-  const unlock = () => sfx.start();
-  window.addEventListener('pointerdown', unlock);
-  window.addEventListener('keydown', unlock);
 
   // ---------- DOM: orbs, numbers, bars, vignette, death overlay ----------
   const style = document.createElement('style');
@@ -213,6 +145,11 @@ export function setupCombat(ctx: CombatCtx) {
   .orb .fill { position: absolute; left: 0; right: 0; bottom: 0; transition: height 0.15s; }
   .orb.hp .fill { background: radial-gradient(circle at 40% 30%, #e0503a, #7a0f0a 70%); }
   .orb.mp .fill { background: radial-gradient(circle at 40% 30%, #4f6fe0, #121c5a 70%); }
+  #orbs .lvl { align-self: flex-end; min-width: 26px; padding: 3px 6px; font: 700 13px/1 Georgia, serif; color: #f0c060;
+    background: rgba(10, 8, 7, 0.85); border: 1px solid #5a4838; text-align: center; }
+  #xpbar { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,0.6); z-index: 3; pointer-events: none; }
+  #xpbar > div { height: 100%; width: 0; background: linear-gradient(90deg, #8a6a20, #f0c060); transition: width 0.2s; }
+  .dmg.lvl { color: #ffd870; font-size: 30px; letter-spacing: 0.08em; }
   .orb .v { position: absolute; inset: 0; display: grid; place-items: center; font: 600 13px/1 system-ui, sans-serif; color: #f0e4d4; text-shadow: 0 1px 2px #000; }
   .dmg { position: fixed; left: 0; top: 0; pointer-events: none; font: 700 18px/1 Georgia, serif; color: #f2ece4;
     text-shadow: 0 1px 2px #000, 0 0 6px #000; white-space: nowrap; z-index: 4; will-change: transform, opacity; }
@@ -234,10 +171,16 @@ export function setupCombat(ctx: CombatCtx) {
   document.head.appendChild(style);
   const orbs = document.createElement('div');
   orbs.id = 'orbs';
-  orbs.innerHTML = '<div class="orb hp"><div class="fill"></div><div class="v"></div></div><div class="orb mp"><div class="fill"></div><div class="v"></div></div>';
+  orbs.innerHTML = '<div class="orb hp"><div class="fill"></div><div class="v"></div></div><div class="orb mp"><div class="fill"></div><div class="v"></div></div><div class="lvl"></div>';
   document.body.appendChild(orbs);
   const hpFill = orbs.querySelector('.hp .fill') as HTMLDivElement, hpText = orbs.querySelector('.hp .v') as HTMLDivElement;
   const mpFill = orbs.querySelector('.mp .fill') as HTMLDivElement, mpText = orbs.querySelector('.mp .v') as HTMLDivElement;
+  const lvlEl = orbs.querySelector('.lvl') as HTMLDivElement;
+  const xpBar = document.createElement('div');
+  xpBar.id = 'xpbar';
+  xpBar.innerHTML = '<div></div>';
+  document.body.appendChild(xpBar);
+  const xpFill = xpBar.firstElementChild as HTMLDivElement;
   const vignette = document.createElement('div');
   vignette.id = 'vignette';
   document.body.appendChild(vignette);
@@ -261,13 +204,13 @@ export function setupCombat(ctx: CombatCtx) {
     nums.push({ el, pos: new THREE.Vector3(), t: 0, dx: 0 });
   }
   let nextNum = 0;
-  function popNumber(at: THREE.Vector3, text: string, kind: '' | 'crit' | 'hurt') {
+  function popNumber(at: THREE.Vector3, text: string, kind: '' | 'crit' | 'hurt' | 'lvl') {
     const n = nums[nextNum++ % nums.length];
     n.el.textContent = text;
     n.el.className = 'dmg' + (kind ? ' ' + kind : '');
     n.el.style.display = 'block';
     n.pos.copy(at);
-    n.t = kind === 'crit' ? 1.0 : 0.8;
+    n.t = kind === 'lvl' ? 1.6 : kind === 'crit' ? 1.0 : 0.8;
     n.dx = rnd(-14, 14);
   }
   const v3 = new THREE.Vector3();
@@ -294,17 +237,26 @@ export function setupCombat(ctx: CombatCtx) {
   const shakeOffset = new THREE.Vector3();
 
   // ---------- hero state ----------
-  let hp = HERO_HP;
   let dead = false, deadT = 0;
   let target: Ghoul | null = null;
   let swingT = -1, swingCd = 0, swingDir = new THREE.Vector3(1, 0, 0), swingResolved = false;
+  let orbKey = '';
   function drawOrbs() {
-    hpFill.style.height = `${(hp / HERO_HP) * 100}%`;
-    hpText.textContent = `${Math.ceil(hp)}`;
-    mpFill.style.height = '100%';
-    mpText.textContent = `${HERO_MP}`;
+    const d = player.derived();
+    const key = `${Math.ceil(player.hp)}/${d.maxHp}/${Math.floor(player.mp)}/${d.maxMp}/${player.level}/${Math.floor(player.xp)}`;
+    if (key === orbKey) return;
+    orbKey = key;
+    hpFill.style.height = `${(player.hp / d.maxHp) * 100}%`;
+    hpText.textContent = `${Math.ceil(player.hp)}`;
+    mpFill.style.height = `${(player.mp / d.maxMp) * 100}%`;
+    mpText.textContent = `${Math.floor(player.mp)}`;
+    lvlEl.textContent = `${player.level}`;
+    lvlEl.title = `레벨 ${player.level}`;
+    xpFill.style.width = player.level >= XP.maxLevel ? '100%' : `${Math.min(100, (player.xp / xpToNext(player.level)) * 100)}%`;
   }
+  player.onChange(() => drawOrbs());
   drawOrbs();
+  let lastHit = { dmg: 0, crit: false, min: 0, max: 0 };
 
   // ---------- ghoul assets ----------
   const sheets: Partial<Record<GView, SheetInfo>> = {};
@@ -382,7 +334,7 @@ export function setupCombat(ctx: CombatCtx) {
         root, pivot, mesh, mats, texs: { front: null, back: null }, view: 'front', faceRight: Math.random() < 0.5, phase: 0, walk: 0, breathT: Math.random() * 3,
         hp: GHOUL_HP, state: 'idle', timer: 0, group: gidx, anchor: new THREE.Vector3(grp.at[0], 0, grp.at[1]),
         wander: pos.clone(), wanderT: rnd(1, 4), knock: new THREE.Vector3(), stagger: 0, flash: 0, lunge: 0,
-        tele, bar, barFill, barT: 0, deathT: 0, shadow,
+        tele, bar, barFill, barT: 0, deathT: 0, shadow, home: pos.clone(), respawnT: 0, ember: null,
       });
     }
   });
@@ -390,8 +342,11 @@ export function setupCombat(ctx: CombatCtx) {
   // ---------- helpers ----------
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
   function hurtGhoul(g: Ghoul, dir: THREE.Vector3) {
-    const crit = Math.random() < CRIT_CHANCE;
-    const dmg = Math.round(irnd(HERO_DMG[0], HERO_DMG[1]) * (crit ? CRIT_MULT : 1));
+    const d = player.derived();
+    const crit = Math.random() * 100 < d.crit;
+    const fire = d.fireMax > 0 ? irnd(d.fireMin, d.fireMax) : 0;
+    const dmg = Math.round((irnd(d.dmgMin, d.dmgMax) + fire) * (crit ? d.critMult : 1));
+    lastHit = { dmg, crit, min: d.dmgMin + d.fireMin, max: Math.round((d.dmgMax + d.fireMax) * d.critMult) };
     g.hp = Math.max(0, g.hp - dmg);
     g.flash = 0.08;
     g.barT = 3;
@@ -414,21 +369,26 @@ export function setupCombat(ctx: CombatCtx) {
     g.tele.visible = false;
     g.bar.style.display = 'none';
     sfx.death();
+    g.respawnT = RESPAWN_TIME;
     if (target === g) { target = null; swingT = -1; }
+    ctx.onKill(g.root.position.clone(), 1);
   }
   function aggroGroup(group: number) {
     for (const o of ghouls) if (o.group === group && o.state === 'idle') o.state = 'chase';
   }
-  function hurtHero(dmg: number) {
+  function hurtHero(raw: number) {
     if (dead) return;
-    hp = Math.max(0, hp - dmg);
+    // physical damage: defence then physical resistance
+    const d = player.derived();
+    const dmg = Math.max(1, Math.round(raw * d.dmgTaken * (1 - d.res.phys / 100)));
+    player.hp = Math.max(0, player.hp - dmg);
     drawOrbs();
     shake = Math.max(shake, 0.16);
     vignetteT = 0.35;
     tmp.copy(ctx.hero.position).setY(2.9);
     popNumber(tmp, `${dmg}`, 'hurt');
     sfx.hurt();
-    if (hp <= 0) {
+    if (player.hp <= 0) {
       dead = true;
       deadT = 2;
       target = null;
@@ -436,6 +396,34 @@ export function setupCombat(ctx: CombatCtx) {
       ctx.stopHero();
       fallen.style.display = 'grid';
     }
+  }
+  function respawn(g: Ghoul) {
+    if (g.ember) { scene.remove(g.ember); g.ember.material.dispose(); embers.splice(embers.indexOf(g.ember), 1); g.ember = null; }
+    g.root.position.copy(g.home);
+    g.root.visible = true;
+    g.hp = GHOUL_HP;
+    g.state = 'idle';
+    g.deathT = 0;
+    g.wanderT = 0;
+    g.knock.set(0, 0, 0);
+    for (const m of [g.mats.front, g.mats.back]) { m.opacity = 1; m.transparent = false; }
+    g.shadow.scale.setScalar(1);
+  }
+  /** Gold shock-wave, glow and floating text at the hero. */
+  const waveMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.15, 0.4), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const wave = new THREE.Mesh(new THREE.RingGeometry(0.8, 1.0, 48).rotateX(-Math.PI / 2), waveMat);
+  wave.visible = false;
+  scene.add(wave);
+  const waveGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: ctx.glowTex, color: new THREE.Color(1.4, 1.0, 0.35), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0, fog: false }));
+  scene.add(waveGlow);
+  let waveT = 0;
+  function levelUpFx() {
+    waveT = 1.0;
+    wave.visible = true;
+    tmp.copy(ctx.hero.position).setY(3.3);
+    popNumber(tmp, '레벨 업!', 'lvl');
+    sfx.levelUp();
+    drawOrbs();
   }
   function setGhoulView(g: Ghoul, dir: THREE.Vector3) {
     const sx = dir.dot(ctx.screenRight), sy = dir.dot(ctx.screenDown);
@@ -466,6 +454,12 @@ export function setupCombat(ctx: CombatCtx) {
         e.userData.phase = Math.random() * 10;
         scene.add(e);
         embers.push(e);
+        g.ember = e;
+      }
+      // come back after a while, unseen: only when the hero is far from the spawn spot
+      if (!g.root.visible) {
+        g.respawnT -= dt;
+        if (g.respawnT <= 0 && heroPos.distanceTo(g.home) >= RESPAWN_MIN_DIST) respawn(g);
       }
       return;
     }
@@ -612,7 +606,7 @@ export function setupCombat(ctx: CombatCtx) {
         swingCd -= dt;
         if (swingT < 0 && swingCd <= 0 && d <= HERO_RANGE + 0.1) {
           swingT = 0;
-          swingCd = SWING_TIME;
+          swingCd = player.derived().period;
           swingResolved = false;
           swingDir.copy(to).normalize();
           sfx.swing();
@@ -664,7 +658,7 @@ export function setupCombat(ctx: CombatCtx) {
       n.t -= realDt;
       if (n.t <= 0) { n.el.style.display = 'none'; continue; }
       const [x, y] = toScreen(n.pos);
-      const life = n.el.classList.contains('crit') ? 1.0 : 0.8;
+      const life = n.el.classList.contains('lvl') ? 1.6 : n.el.classList.contains('crit') ? 1.0 : 0.8;
       const age = 1 - n.t / life;
       n.el.style.transform = `translate(${x + n.dx * age - 10}px, ${y - 46 * age - 10}px) scale(${age < 0.1 ? 1.4 - age * 4 : 1})`;
       n.el.style.opacity = `${Math.min(1, n.t / 0.25)}`;
@@ -680,6 +674,25 @@ export function setupCombat(ctx: CombatCtx) {
       g.barFill.style.width = `${(g.hp / GHOUL_HP) * 100}%`;
     }
 
+    // regeneration
+    if (!dead) {
+      const d = player.derived();
+      if (d.hpRegen) player.hp = Math.min(d.maxHp, player.hp + d.hpRegen * dt);
+      if (d.mpRegen) player.mp = Math.min(d.maxMp, player.mp + d.mpRegen * dt);
+      drawOrbs();
+    }
+    // level-up wave
+    if (waveT > 0) {
+      waveT = Math.max(0, waveT - realDt);
+      const k = 1 - waveT;
+      wave.position.copy(ctx.hero.position).setY(0.06);
+      wave.scale.setScalar(0.5 + k * 4.5);
+      waveMat.opacity = Math.sin(Math.min(1, k * 1.3) * Math.PI) * 0.9;
+      waveGlow.position.copy(ctx.hero.position).setY(1.4);
+      waveGlow.scale.setScalar(2 + k * 3);
+      waveGlow.material.opacity = (1 - k) * 0.8;
+      if (waveT <= 0) wave.visible = false;
+    }
     // screen feedback
     vignetteT = Math.max(0, vignetteT - realDt);
     vignette.style.opacity = `${vignetteT / 0.35}`;
@@ -690,7 +703,9 @@ export function setupCombat(ctx: CombatCtx) {
       deadT -= realDt;
       if (deadT <= 0) {
         dead = false;
-        hp = HERO_HP;
+        const d = player.derived();
+        player.hp = d.maxHp;
+        player.mp = d.maxMp;
         drawOrbs();
         fallen.style.display = 'none';
         ctx.hero.position.copy(ctx.heroStart);
@@ -712,18 +727,24 @@ export function setupCombat(ctx: CombatCtx) {
     setTarget(g: Ghoul | null) { if (!dead) target = g; if (!g) { swingT = -1; ctx.heroPivot.position.set(0, 0, 0); } },
     hasTarget() { return target !== null; },
     isDead() { return dead; },
-    drinkPotion() {
-      if (dead || hp >= HERO_HP) return false;
-      const before = hp;
-      hp = Math.min(HERO_HP, hp + POTION_HEAL);
+    /** Drink one potion of this kind from the bag (skill bar 5/6, right click). */
+    drinkPotion(kind: 'potion_hp' | 'potion_mp' = 'potion_hp') {
+      if (dead) return false;
+      const hp0 = player.hp, mp0 = player.mp;
+      if (!player.drink(kind)) return false;
+      sfx.potion();
       drawOrbs();
       tmp.copy(ctx.hero.position).setY(2.9);
-      popNumber(tmp, `+${Math.round(hp - before)}`, '');
+      popNumber(tmp, kind === 'potion_hp' ? `+${Math.round(player.hp - hp0)}` : `+${Math.round(player.mp - mp0)} 마나`, '');
       return true;
     },
+    levelUpFx,
     debug: {
       ghouls,
-      get hp() { return hp; },
+      get hp() { return player.hp; },
+      get lastHit() { return lastHit; },
+      /** Test hook: bring every dead ghoul back now, wherever the hero is. */
+      respawnAll() { for (const g of ghouls) if (g.state === 'dead') respawn(g); },
       get target() { return target ? ghouls.indexOf(target) : -1; },
       screenOf(i: number) { const g = ghouls[i]; tmp2.copy(g.root.position).setY(GHOUL_H * 0.5); return toScreen(tmp2); },
     },
