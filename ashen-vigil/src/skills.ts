@@ -292,6 +292,8 @@ export function setupSkills(ctx: SkillsCtx) {
         b.live = false; b.s.visible = false;
         const def = skillDef('ember_throw');
         if (hit) {
+          b.s.position.x = world.posOf(hit).x;          // the burst centres on the target it struck
+          b.s.position.z = world.posOf(hit).z;
           const base = world.spellRoll() * val(def.mult, b.lv), crit = world.critRoll();
           b.rec!.hits.push(world.damage(hit, base, { crit, dir: b.dir, knock: 0.25 }));
           for (const g of world.alive()) if (g !== hit && flat(world.posOf(g), b.s.position) <= val(def.radius, b.lv)) b.rec!.hits.push(world.damage(g, base * 0.5, { dir: v.subVectors(world.posOf(g), b.s.position).clone(), knock: 0.2, feel: 0.4 }));
