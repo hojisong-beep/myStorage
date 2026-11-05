@@ -11,7 +11,11 @@ import { player } from './stats';
 import { loadGame, saveNow, startAutosave, wipeSave } from './save';
 import { makeItem, makeUnique, rollDrop } from './items';
 import { XP } from './data/balance';
-import { setupSkillBar, setSkillAction, setSkillCount } from './skillbar';
+import { toast } from './ui';
+import { setupSkillBar, type SlotModel } from './skillbar';
+import { setupSkills, skillDef } from './skills';
+import { setupSkillTree } from './skilltree';
+import { sfx } from './audio';
 import { setupCombat } from './combat';
 
 const TILE = 2;           // world units per floor tile
@@ -483,7 +487,9 @@ function startCrossfade() {
   ghostLife = GHOST_TIME;
 }
 const heroAnim = { view: 'front' as ViewId, faceRight: true, flip: false, walk: 0, phase: 0, lean: 0, freeze: null as number | null };
+const lastDir = new THREE.Vector3(1, 0, 1).normalize();
 function faceToward(dir: THREE.Vector3) {
+  if (dir.lengthSq() > 1e-6) lastDir.copy(dir).setY(0).normalize();
   const sx = dir.dot(SCREEN_RIGHT), sy = dir.dot(SCREEN_DOWN);
   // Screen angle above the horizontal: within about 35 degrees use the side
   // view, otherwise front (moving down) or back (moving up). The band edge
@@ -663,11 +669,33 @@ function pick(ev: PointerEvent, first: boolean) {
   } else if (combat.hasTarget() || loot.hasTarget()) return;
   if (ground) moveTo(ground, true);
 }
-renderer.domElement.addEventListener('pointerdown', (e) => { if (e.button === 0) { mouseDown = true; pick(e, true); } });
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button === 0) { mouseDown = true; pick(e, true); }
+  else if (e.button === 2) castRmb();
+});
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
 renderer.domElement.addEventListener('pointermove', (e) => { if (mouseDown) pick(e, false); });
 window.addEventListener('pointerup', () => { mouseDown = false; });
 
 const HERO_START = new THREE.Vector3(0, 0, 0);
+let bar: ReturnType<typeof setupSkillBar> | null = null;
+function renderBar() {
+  if (!bar) return;
+  const ms: SlotModel[] = [];
+  for (let i = 0; i < 4; i++) {
+    const id = player.slots[i];
+    if (!id) { ms.push({ icon: null, name: '', desc: '', cd: 0, cdTotal: 0, disabled: true }); continue; }
+    const d = skillDef(id), lv = player.skillLevel(id);
+    ms.push({ icon: d.icon, name: `${d.name} (${lv}레벨)`, desc: `${d.desc}<br><span class="b">마나 ${d.mp[lv - 1]} · 재사용 ${d.cd[lv - 1]}초</span>`, cd: skills.cdLeft(id), cdTotal: skills.cdTotal(id), noMana: player.mp < d.mp[lv - 1] });
+  }
+  const pot = (k: number, kind: 'potion_hp' | 'potion_mp', name: string, desc: string): SlotModel => {
+    const n = player.count(kind);
+    return { icon: kind === 'potion_hp' ? 'icon_potion_hp' : 'icon_potion_mp', name, desc, count: n, cd: Math.max(0, potionReady[k] - clock.elapsedTime), cdTotal: POTION_CD, disabled: n <= 0 };
+  };
+  ms.push(pot(0, 'potion_hp', '체력 물약', '체력 60 회복 (가방의 물약 사용, 재사용 8초)'), pot(1, 'potion_mp', '마나 물약', '마나 40 회복 (가방의 물약 사용, 재사용 8초)'));
+  const r = player.rmbSkill();
+  bar.render(ms, r ? `우클릭: ${skillDef(r).name}` : '');
+}
 const loadedFrom = loadGame();
 const loot = setupLoot({
   scene, camera, texLoader, glowTex, hero,
@@ -695,7 +723,38 @@ const combat = setupCombat({
     player.gainXp(XP.ghoul * level);
   },
 });
-player.onChange((why) => { if (why === 'levelup') combat.levelUpFx(); });
+player.onChange((why) => {
+  if (why !== 'levelup') return;
+  combat.levelUpFx();
+  // first level-up: point the way to the skill tree
+  if (Object.keys(player.skills).length === 0) toast('스킬 점수 +1 — S 키로 기술 창을 여세요', 3200);
+});
+const skills = setupSkills({ scene, world: combat.world, hero, glowTex, screenRight: SCREEN_RIGHT, screenDown: SCREEN_DOWN, floorHalf: half });
+// aim: the floor under the mouse; over UI (or off the floor) the facing direction
+let mouseX = -1, mouseY = -1, mouseOverCanvas = false;
+window.addEventListener('pointermove', (e) => { mouseX = e.clientX; mouseY = e.clientY; mouseOverCanvas = e.target === renderer.domElement; });
+function aim() {
+  let at: THREE.Vector3 | null = null;
+  if (mouseOverCanvas) {
+    pointer.set((mouseX / window.innerWidth) * 2 - 1, -(mouseY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    at = raycaster.intersectObject(pickPlane)[0]?.point ?? null;
+  }
+  if (!at || Math.hypot(at.x - hero.position.x, at.z - hero.position.z) < 0.2) at = hero.position.clone().addScaledVector(lastDir, 3);
+  return { at, dir: at.clone().sub(hero.position).setY(0).normalize() };
+}
+function castSkill(id: Parameters<typeof skills.cast>[0] | null, slot: number) {
+  if (!id) { bar?.deny(slot); sfx.denied(); return; }
+  const a = aim();
+  const r = skills.cast(id, a.at, a.dir);
+  if (r === 'ok') bar?.used(slot);
+  else {
+    bar?.deny(slot);
+    sfx.denied();
+    if (r === 'mana') toast('마나가 부족합니다', 700);
+  }
+}
+function castRmb() { if (!combat.isDead()) castSkill(player.rmbSkill(), Math.max(0, player.slots.indexOf(player.rmbSkill()))); }
 let moveSpeed = player.derived().moveSpeed;
 player.onChange(() => { moveSpeed = player.derived().moveSpeed; });
 
@@ -707,7 +766,8 @@ function frame() {
   const t = clock.elapsedTime;
 
   let step = 0;
-  if (moving) {
+  if (moving && (combat.isLocked() || skills.isCharging())) step = 0;           // cast animation: hold still
+  else if (moving) {
     tmp.subVectors(target, hero.position).setY(0);
     const dist = tmp.length();
     if (dist < 0.05) {
@@ -720,6 +780,8 @@ function frame() {
   updateHero(moving ? tmp : null, step, dt);
   combat.update(dt, realDt);
   loot.update(dt);
+  skills.update(dt);
+  renderBar();
 
   const mm = marker.material as THREE.MeshBasicMaterial;
   mm.opacity = Math.max(0, mm.opacity - dt * 1.5);
@@ -771,17 +833,35 @@ const inventory = setupInventory({
   onDropToWorld: (it) => loot.dropAtHero(it),
   onNewGame: () => { wipeSave(); player.reset(); hero.position.copy(HERO_START); moving = false; saveNow(); },
 });
-setupSkillBar();
-setSkillAction(4, () => combat.drinkPotion('potion_hp'));
-setSkillAction(5, () => combat.drinkPotion('potion_mp'));
-const showPotions = () => { setSkillCount(4, player.count('potion_hp')); setSkillCount(5, player.count('potion_mp')); };
-player.onChange(showPotions);
-showPotions();
+// skill bar: 1-4 skills, 5/6 potions (8 s cooldown each)
+const POTION_CD = 8;
+const potionReady = [0, 0];
+let tree: ReturnType<typeof setupSkillTree> | null = null;
+bar = setupSkillBar({
+  onUse(i) {
+    if (i < 4) { castSkill(player.slots[i], i); return; }
+    const k = i - 4, kind = k === 0 ? 'potion_hp' : 'potion_mp';
+    if (clock.elapsedTime < potionReady[k]) { bar?.deny(i); sfx.denied(); return; }
+    if (combat.drinkPotion(kind)) { potionReady[k] = clock.elapsedTime + POTION_CD; bar?.used(i); }
+    else { bar?.deny(i); sfx.denied(); }
+  },
+  onSlotClick: (i) => tree?.slotClicked(i) ?? false,
+});
+tree = setupSkillTree({
+  assign(slot, id) {
+    const j = player.slots.indexOf(id);
+    if (j >= 0) player.slots[j] = player.slots[slot];       // swap if already on the bar
+    player.slots[slot] = id;
+    player.emit('skill');
+  },
+  setPicking: (on) => bar?.setPicking(on),
+  slotAt: (x, y) => bar?.slotAt(x, y) ?? -1,
+});
 startAutosave();
 if (location.search.includes('debug')) {
   // test hooks only (not reachable from the UI)
   Object.assign(window as unknown as Record<string, unknown>, {
     __combat: combat.debug, __renderer: renderer,
-    __av: { player, loot: loot.debug, lootApi: loot, combat, lootLog: loot.log, inventory, saveNow, makeItem, makeUnique, rollDrop, loadedFrom },
+    __av: { player, skills, skillsLog: skills.log, tree, loot: loot.debug, lootApi: loot, combat, lootLog: loot.log, inventory, saveNow, makeItem, makeUnique, rollDrop, loadedFrom },
   });
 }

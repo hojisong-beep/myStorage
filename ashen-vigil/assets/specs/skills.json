@@ -1,0 +1,43 @@
+{
+  "style": "dark fantasy, realistic hand-painted render style, muted palette of charcoal black, ash grey, bone white and dried-blood red, single accent of ember orange, gritty, no text, no letters, no watermark",
+  "kinds": {
+    "skill": "square game skill icon, dynamic composition filling the frame, dark vignette border"
+  },
+  "items": [
+    {
+      "id": "skill_ash_slash",
+      "kind": "skill",
+      "prompt": "A broad sweeping sword slash arc trailing grey ash and ember sparks, cutting through the air"
+    },
+    {
+      "id": "skill_whirl_cleave",
+      "kind": "skill",
+      "prompt": "An armoured knight spinning with a sword, a full circular whirlwind of ash and ember sparks around him, seen from above"
+    },
+    {
+      "id": "skill_wardens_charge",
+      "kind": "skill",
+      "prompt": "An armoured knight charging forward with a shield, motion blur afterimages and a burst of dust and ash behind him"
+    },
+    {
+      "id": "skill_burning_ring",
+      "kind": "skill",
+      "prompt": "An expanding ring of fire spreading outward on dark ashen ground, ember sparks rising, seen from above"
+    },
+    {
+      "id": "skill_purging_flame",
+      "kind": "skill",
+      "prompt": "A tall pillar of roaring orange fire erupting from a glowing circle on the ground, ash swirling around it"
+    },
+    {
+      "id": "skill_dread",
+      "kind": "skill",
+      "prompt": "A wave of black smoke and shadow rippling outward from a dark hooded silhouette, faint skull shapes in the smoke"
+    },
+    {
+      "id": "skill_last_vigil",
+      "kind": "skill",
+      "prompt": "A kneeling armoured knight on the verge of falling, a bright shockwave of ember light bursting out around him, defiant"
+    }
+  ]
+}

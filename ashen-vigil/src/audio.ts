@@ -69,6 +69,18 @@ export class Sfx {
   equip() { this.burst('bandpass', 600, 300, 0.12, 0.4); this.tone('square', 180, 120, 0.08, 0.12); }
   gold() { [1800, 2400].forEach((f, i) => this.tone('sine', f, f, 0.09, 0.14, i * 0.05)); }
   levelUp() { [392, 523, 659, 784].forEach((f, i) => this.tone('triangle', f, f, 0.35, 0.22, i * 0.09)); }
+  // skills (M2-b)
+  denied() { this.tone('square', 160, 120, 0.08, 0.12); }
+  slashSkill() { this.burst('bandpass', 700, 3200, 0.2, 0.45); this.tone('sawtooth', 300, 120, 0.15, 0.08); }
+  whirl() { this.burst('bandpass', 500, 2400, 0.55, 0.35); }
+  charge() { this.burst('lowpass', 400, 2000, 0.3, 0.5); this.tone('sawtooth', 90, 180, 0.3, 0.12); }
+  emberCast() { this.tone('triangle', 900, 1400, 0.1, 0.15); this.burst('highpass', 3000, 6000, 0.08, 0.15); }
+  explode() { this.burst('lowpass', 1800, 120, 0.35, 0.55); this.tone('sine', 120, 50, 0.25, 0.4); }
+  ring() { this.burst('bandpass', 300, 1600, 0.6, 0.45); this.tone('sawtooth', 80, 160, 0.5, 0.1); }
+  purge() { this.burst('lowpass', 600, 2500, 0.9, 0.4); this.tone('sawtooth', 70, 110, 0.8, 0.1); }
+  armor() { this.burst('bandpass', 2000, 500, 0.6, 0.3); this.tone('sine', 220, 330, 0.5, 0.15); }
+  dread() { this.tone('sawtooth', 110, 55, 0.9, 0.2); this.burst('lowpass', 500, 80, 0.9, 0.35); }
+  vigil() { [196, 262, 392, 523].forEach((f, i) => this.tone('triangle', f, f, 0.6, 0.25, i * 0.06)); this.burst('lowpass', 2500, 100, 0.8, 0.6); }
   potion() { this.tone('sine', 300, 600, 0.18, 0.2); this.burst('bandpass', 800, 1200, 0.15, 0.15); }
 }
 

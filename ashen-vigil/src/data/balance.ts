@@ -151,3 +151,47 @@ export const FORMULA = {
   moveSpeed: 4.2,
   resCap: 75,
 };
+
+// --- skills (M2-b) -----------------------------------------------------------
+// Each skill has 5 levels; values are per level (index 0 = level 1).
+// Damage composition (see also combat.ts):
+//   sword line : weapon roll (already x str and +damage%) + gear fire roll, x skill mult, x crit mult on a crit
+//   ember line : (spell base roll + energy x SPELL.perEne) x skill mult (the per-level table) x (1 + damage%), x crit mult
+//   damage over time ticks never crit; attack speed affects basic attacks only (skills use fixed cooldowns)
+export type SkillId =
+  | 'ash_slash' | 'whirl_cleave' | 'wardens_charge'
+  | 'ember_throw' | 'burning_ring' | 'purging_flame'
+  | 'ash_armor' | 'dread' | 'last_vigil';
+export type Tree = 'sword' | 'ember' | 'oath';
+export interface SkillDef {
+  id: SkillId; tree: Tree; tier: 1 | 2 | 3; name: string; icon: string; desc: string;
+  passive?: boolean;
+  mp: number[]; cd: number[];
+  mult?: number[];            // damage multiplier (sword: x weapon, ember: x spell base)
+  radius?: number[]; dur?: number[]; tick?: number[]; extra?: number[]; extra2?: number[];
+}
+const L = (a: number, step: number) => [0, 1, 2, 3, 4].map((i) => Math.round((a + step * i) * 1000) / 1000);
+export const SPELL = { base: [12, 20] as [number, number], perEne: 0.6 };
+export const SKILL_RULES = { maxLevel: 5, tierLevel: { 1: 1, 2: 4, 3: 8 } as Record<1 | 2 | 3, number>, castLock: 0.2 };
+export const SKILLS: SkillDef[] = [
+  { id: 'ash_slash', tree: 'sword', tier: 1, name: '잿빛 베기', icon: 'skill_ash_slash', desc: '전방 120° 부채꼴(반경 2.2)을 무기 피해로 벤다.',
+    mp: L(4, 0), cd: L(0.8, 0), mult: L(1.4, 0.1), radius: L(2.2, 0) },
+  { id: 'whirl_cleave', tree: 'sword', tier: 2, name: '휘도는 참격', icon: 'skill_whirl_cleave', desc: '몸을 돌려 주위(반경 2.6)를 0.25초 간격으로 3번 벤다.',
+    mp: L(10, 0), cd: L(4, -0.2), mult: L(0.8, 0.08), radius: L(2.6, 0) },
+  { id: 'wardens_charge', tree: 'sword', tier: 3, name: '파수의 돌진', icon: 'skill_wardens_charge', desc: '마우스 방향으로 돌진한다(피격 무시). 경로의 적에게 피해와 기절.',
+    mp: L(12, 0), cd: L(7, -0.5), mult: L(1.2, 0.1), radius: L(6, 0), dur: L(0.6, 0.1) },
+  { id: 'ember_throw', tree: 'ember', tier: 1, name: '불똥 투척', icon: 'skill_ember_throw', desc: '불똥을 던진다(속도 14, 사거리 10). 적중 시 반경 1.2 폭발(주변 50%).',
+    mp: L(5, 0), cd: L(0.5, 0), mult: L(1, 0.15), radius: L(1.2, 0) },
+  { id: 'burning_ring', tree: 'ember', tier: 2, name: '타는 재의 고리', icon: 'skill_burning_ring', desc: '주위로 퍼지는 불꽃 고리(반경 3)가 피해를 주고 3초간 화상(0.5초마다).',
+    mp: L(14, 0), cd: L(6, 0), mult: L(1.0, 0.1), radius: L(3, 0), dur: L(3, 0), tick: L(0.2, 0.03) },
+  { id: 'purging_flame', tree: 'ember', tier: 3, name: '정화의 불길', icon: 'skill_purging_flame', desc: '지정 위치에 불기둥 장판(반경 2.5)을 깔아 0.5초마다 피해를 준다.',
+    mp: L(18, 0), cd: L(10, 0), mult: L(0.35, 0.05), radius: L(2.5, 0), dur: L(4, 0.5) },
+  { id: 'ash_armor', tree: 'oath', tier: 1, name: '재의 갑옷', icon: 'skill_ash_armor', desc: '15초간 방어가 오르고, 받는 피해의 25%를 마나로 흡수한다.',
+    mp: L(10, 0), cd: L(20, 0), dur: L(15, 0), extra: L(10, 6), extra2: L(0.25, 0) },
+  { id: 'dread', tree: 'oath', tier: 2, name: '언데드 위압', icon: 'skill_dread', desc: '반경 6의 몬스터를 6초간 느리게(이동 감소) 하고 공격 피해를 줄인다.',
+    mp: L(12, 0), cd: L(14, 0), radius: L(6, 0), dur: L(6, 0), extra: L(0.4, 0.05), extra2: L(0.2, 0.03) },
+  { id: 'last_vigil', tree: 'oath', tier: 3, name: '마지막 파수', icon: 'skill_last_vigil', desc: '(패시브) 치명적인 피해를 받으면 체력 30%로 버티고 충격파로 주변을 밀쳐 기절시킨다.',
+    passive: true, mp: L(0, 0), cd: L(120, -15), radius: L(4, 0), dur: L(1, 0), extra: L(0.3, 0) },
+];
+export const MP_REGEN = { base: 0.8, perEne: 0.08 };
+export const STATUS = { stunStarH: 0.35, burnTick: 0.5, purgeTick: 0.5 };

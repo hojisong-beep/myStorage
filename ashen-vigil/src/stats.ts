@@ -1,6 +1,6 @@
 // Player progression and gear: level, experience, attributes, equipment,
 // the 10x4 bag, gold, current HP/MP and the derived combat numbers.
-import { FORMULA, START_ATTRS, XP, xpToNext, type Attr, type ModKey, type Slot } from './data/balance';
+import { FORMULA, MP_REGEN, SKILLS, SKILL_RULES, START_ATTRS, XP, xpToNext, type Attr, type ModKey, type SkillDef, type SkillId, type Slot } from './data/balance';
 import { baseOf, makeItem, type Item } from './items';
 
 export const BAG_W = 10, BAG_H = 4;
@@ -30,6 +30,13 @@ export class Player {
   bag: BagEntry[] = [];
   hp = 100;
   mp = 50;
+  // skills (M2-b)
+  skills: Partial<Record<SkillId, number>> = {};
+  slots: (SkillId | null)[] = [null, null, null, null];
+  rmb: SkillId | null = null;                    // null = the skill in slot 1
+  // timed buffs (not saved)
+  buffDef = 0;
+  buffDefUntil = 0;
   private listeners: Listener[] = [];
 
   onChange(fn: Listener) { this.listeners.push(fn); }
@@ -47,7 +54,7 @@ export class Player {
     const wb = weapon ? baseOf(weapon) : null;
     const base = wb?.dmg ?? F.unarmed;
     const mult = (1 + a.str * F.dmgPerStr) * (1 + m('dmgPct') / 100);
-    let def = m('def');
+    let def = m('def') + (performance.now() < this.buffDefUntil ? this.buffDef : 0);
     for (const it of Object.values(this.equip)) if (it) def += baseOf(it).def ?? 0;
     const cap = (v: number) => Math.min(F.resCap, v);
     return {
@@ -61,7 +68,7 @@ export class Player {
       def, dmgTaken: 1 - Math.min(F.defCap, def / (def + F.defK)),
       moveSpeed: F.moveSpeed * (1 + m('ms') / 100),
       res: { fire: cap(m('resFire')), cold: cap(m('resCold')), poison: cap(m('resPoison')), phys: cap(m('resPhys')) },
-      hpRegen: m('hpRegen'), mpRegen: m('mpRegen'), skills: m('skills'),
+      hpRegen: m('hpRegen'), mpRegen: MP_REGEN.base + a.ene * MP_REGEN.perEne + m('mpRegen'), skills: m('skills'),
     };
   }
   /** Keep current HP/MP within the (possibly changed) maximums. */
@@ -165,13 +172,43 @@ export class Player {
     return true;
   }
 
+  // ---------- skills ----------
+  skillLevel(id: SkillId) { return this.skills[id] ?? 0; }
+  /** Why a point cannot go into this skill now, or null if it can. */
+  learnBlock(def: SkillDef): string | null {
+    const lv = this.skillLevel(def.id);
+    if (lv >= SKILL_RULES.maxLevel) return '최대 레벨';
+    if (this.level < SKILL_RULES.tierLevel[def.tier]) return `캐릭터 레벨 ${SKILL_RULES.tierLevel[def.tier]} 필요`;
+    if (def.tier > 1) {
+      const prev = SKILLS.find((x) => x.tree === def.tree && x.tier === def.tier - 1)!;
+      if (this.skillLevel(prev.id) < 1) return `선행: ${prev.name} 1레벨 이상`;
+    }
+    if (this.skillPoints <= 0) return '스킬 점수 부족';
+    return null;
+  }
+  learn(id: SkillId) {
+    const def = SKILLS.find((x) => x.id === id)!;
+    if (this.learnBlock(def)) return false;
+    this.skillPoints--;
+    this.skills[id] = this.skillLevel(id) + 1;
+    // a newly learned active skill goes into the first empty slot
+    if (!def.passive && this.skillLevel(id) === 1 && !this.slots.includes(id)) {
+      const i = this.slots.indexOf(null);
+      if (i >= 0) this.slots[i] = id;
+    }
+    this.emit('skill');
+    return true;
+  }
+  rmbSkill(): SkillId | null { return this.rmb && this.skillLevel(this.rmb) > 0 ? this.rmb : this.slots[0]; }
+
   // ---------- save data ----------
   toJSON() {
-    return { level: this.level, xp: this.xp, attrs: this.attrs, attrPoints: this.attrPoints, skillPoints: this.skillPoints, gold: this.gold, equip: this.equip, bag: this.bag };
+    return { level: this.level, xp: this.xp, attrs: this.attrs, attrPoints: this.attrPoints, skillPoints: this.skillPoints, gold: this.gold, equip: this.equip, bag: this.bag, skills: this.skills, slots: this.slots, rmb: this.rmb };
   }
   reset() {
     this.level = 1; this.xp = 0; this.attrs = { ...START_ATTRS }; this.attrPoints = 0; this.skillPoints = 0; this.gold = 0;
     this.equip = {}; this.bag = [];
+    this.skills = {}; this.slots = [null, null, null, null]; this.rmb = null; this.buffDefUntil = 0;
     // a new game starts with three health potions
     const p = makeItem('potion_hp'); p.qty = 3;
     this.addToBag(p, 'reset');

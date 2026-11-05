@@ -7,7 +7,7 @@
 // floating numbers and a procedural sound.
 import * as THREE from 'three';
 import { sfx } from './audio';
-import { xpToNext, XP } from './data/balance';
+import { SKILLS, SPELL, xpToNext, XP } from './data/balance';
 import { player } from './stats';
 
 export interface CombatCtx {
@@ -36,6 +36,7 @@ const HERO_RANGE = 1.8;
 const SWING_IMPACT = 0.11;          // seconds into the swing when the blade lands
 // Hero damage, swing period, crit, defence and max HP/MP come from stats.ts (player.derived()).
 const RESPAWN_TIME = 90;
+const STATUS_TICK = 0.5;     // burn tick (s)
 const RESPAWN_MIN_DIST = 20;
 
 const GHOUL_HP = 60;
@@ -130,6 +131,10 @@ interface Ghoul {
   tele: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   bar: HTMLDivElement; barFill: HTMLDivElement; barT: number; deathT: number; shadow: THREE.Mesh;
   home: THREE.Vector3; respawnT: number; ember: THREE.Sprite | null;
+  // status effects (M2-b)
+  stun: number; stars: THREE.Sprite;
+  slowT: number; slowMul: number; weakT: number; weakMul: number;
+  burnT: number; burnTick: number; burnDmg: number;
 }
 
 export function setupCombat(ctx: CombatCtx) {
@@ -150,6 +155,7 @@ export function setupCombat(ctx: CombatCtx) {
   #xpbar { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(0,0,0,0.6); z-index: 3; pointer-events: none; }
   #xpbar > div { height: 100%; width: 0; background: linear-gradient(90deg, #8a6a20, #f0c060); transition: width 0.2s; }
   .dmg.lvl { color: #ffd870; font-size: 30px; letter-spacing: 0.08em; }
+  .dmg.dot { color: #ff9a50; font-size: 14px; }
   .orb .v { position: absolute; inset: 0; display: grid; place-items: center; font: 600 13px/1 system-ui, sans-serif; color: #f0e4d4; text-shadow: 0 1px 2px #000; }
   .dmg { position: fixed; left: 0; top: 0; pointer-events: none; font: 700 18px/1 Georgia, serif; color: #f2ece4;
     text-shadow: 0 1px 2px #000, 0 0 6px #000; white-space: nowrap; z-index: 4; will-change: transform, opacity; }
@@ -204,7 +210,7 @@ export function setupCombat(ctx: CombatCtx) {
     nums.push({ el, pos: new THREE.Vector3(), t: 0, dx: 0 });
   }
   let nextNum = 0;
-  function popNumber(at: THREE.Vector3, text: string, kind: '' | 'crit' | 'hurt' | 'lvl') {
+  function popNumber(at: THREE.Vector3, text: string, kind: '' | 'crit' | 'hurt' | 'lvl' | 'dot') {
     const n = nums[nextNum++ % nums.length];
     n.el.textContent = text;
     n.el.className = 'dmg' + (kind ? ' ' + kind : '');
@@ -300,6 +306,16 @@ export function setupCombat(ctx: CombatCtx) {
     });
   }
 
+  // stun stars: a ring of little stars drawn once
+  const starMat = new THREE.SpriteMaterial({ map: canvasTex(128, 64, (c) => {
+    c.fillStyle = '#ffe680';
+    for (let i = 0; i < 4; i++) {
+      const x = 20 + i * 29, y = 32 + (i % 2 ? -8 : 8);
+      c.beginPath();
+      for (let k = 0; k < 10; k++) { const r = k % 2 ? 4 : 10, a = (k / 10) * Math.PI * 2 - Math.PI / 2; c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+      c.fill();
+    }
+  }), depthWrite: false, transparent: true, fog: false });
   const teleGeo = new THREE.CircleGeometry(1.95, 28, -Math.PI * 0.32, Math.PI * 0.64).rotateX(-Math.PI / 2);
   const barLayer = document.body;
   let gi = 0;
@@ -325,6 +341,11 @@ export function setupCombat(ctx: CombatCtx) {
       tele.visible = false;
       scene.add(tele);
       scene.add(root);
+      const stars = new THREE.Sprite(starMat);
+      stars.scale.set(0.9, 0.45, 1);
+      stars.position.y = GHOUL_H + 0.35;
+      stars.visible = false;
+      root.add(stars);
       const bar = document.createElement('div');
       bar.className = 'gbar';
       const barFill = document.createElement('div');
@@ -335,33 +356,63 @@ export function setupCombat(ctx: CombatCtx) {
         hp: GHOUL_HP, state: 'idle', timer: 0, group: gidx, anchor: new THREE.Vector3(grp.at[0], 0, grp.at[1]),
         wander: pos.clone(), wanderT: rnd(1, 4), knock: new THREE.Vector3(), stagger: 0, flash: 0, lunge: 0,
         tele, bar, barFill, barT: 0, deathT: 0, shadow, home: pos.clone(), respawnT: 0, ember: null,
+        stun: 0, stars, slowT: 0, slowMul: 0, weakT: 0, weakMul: 0, burnT: 0, burnTick: 0, burnDmg: 0,
       });
     }
   });
 
   // ---------- helpers ----------
   const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3();
+  /** Weapon hit value: weapon roll (str and +damage% included) + gear fire roll. */
+  function weaponRoll() {
+    const d = player.derived();
+    return irnd(d.dmgMin, d.dmgMax) + (d.fireMax > 0 ? irnd(d.fireMin, d.fireMax) : 0);
+  }
+  /** Spell value: (base roll + energy x perEne) x (1 + damage%). */
+  function spellRoll() {
+    return (irnd(SPELL.base[0], SPELL.base[1]) + player.attrs.ene * SPELL.perEne) * (1 + player.modTotal('dmgPct') / 100);
+  }
+  function critRoll() { return Math.random() * 100 < player.derived().crit; }
+  interface HitOpts { crit?: boolean; dir?: THREE.Vector3 | null; knock?: number; stun?: number; dot?: boolean; feel?: number }
+  /** Apply damage to a ghoul with the hit feedback that fits (DoT ticks are quiet). */
+  function damageGhoul(g: Ghoul, raw: number, o: HitOpts = {}) {
+    if (g.state === 'dead') return 0;
+    const crit = !!o.crit && !o.dot;
+    const dmg = Math.max(1, Math.round(raw * (crit ? player.derived().critMult : 1)));
+    g.hp = Math.max(0, g.hp - dmg);
+    g.barT = 3;
+    if (g.state === 'idle') aggroGroup(g.group);
+    tmp.copy(g.root.position).setY(GHOUL_H + 0.2);
+    if (o.dot) {
+      popNumber(tmp, `${dmg}`, 'dot');
+    } else {
+      g.flash = 0.08;
+      if (o.knock && o.dir) g.knock.copy(o.dir).setY(0).normalize().multiplyScalar(o.knock / 0.12);
+      if (o.stun) stunGhoul(g, o.stun);
+      else if (g.state === 'windup') g.timer += 0.15;                     // a hit delays the swing, it does not cancel it
+      else g.stagger = 0.25;
+      const feel = o.feel ?? 1;
+      hitstop = Math.max(hitstop, (crit ? 0.07 : 0.05) * feel);
+      shake = Math.max(shake, (crit ? 0.22 : 0.09) * feel);
+      tmp2.copy(g.root.position).setY(1.5);
+      sparks.emit(tmp2, Math.round((crit ? 26 : 14) * feel), crit ? 5 : 3.5, 3, 0.45);
+      popNumber(tmp, `${dmg}`, crit ? 'crit' : '');
+      if (crit) sfx.crit(); else sfx.hit();
+    }
+    if (g.hp <= 0) killGhoul(g);
+    return dmg;
+  }
+  function stunGhoul(g: Ghoul, t: number) {
+    if (g.state === 'dead') return;
+    g.stun = Math.max(g.stun, t);
+    if (g.state === 'windup') { g.state = 'chase'; g.tele.visible = false; }   // a stun cancels a wind-up
+  }
   function hurtGhoul(g: Ghoul, dir: THREE.Vector3) {
     const d = player.derived();
-    const crit = Math.random() * 100 < d.crit;
-    const fire = d.fireMax > 0 ? irnd(d.fireMin, d.fireMax) : 0;
-    const dmg = Math.round((irnd(d.dmgMin, d.dmgMax) + fire) * (crit ? d.critMult : 1));
+    const crit = critRoll();
+    const raw = weaponRoll();
+    const dmg = damageGhoul(g, raw, { crit, dir, knock: KNOCKBACK });
     lastHit = { dmg, crit, min: d.dmgMin + d.fireMin, max: Math.round((d.dmgMax + d.fireMax) * d.critMult) };
-    g.hp = Math.max(0, g.hp - dmg);
-    g.flash = 0.08;
-    g.barT = 3;
-    g.knock.copy(dir).setY(0).normalize().multiplyScalar(KNOCKBACK / 0.12);    // spread over 0.12 s
-    if (g.state === 'windup') g.timer += 0.15;                                 // a hit delays the swing, it does not cancel it
-    else g.stagger = 0.25;
-    if (g.state === 'idle') aggroGroup(g.group);
-    hitstop = crit ? 0.07 : 0.05;
-    shake = Math.max(shake, crit ? 0.22 : 0.09);
-    tmp.copy(g.root.position).setY(1.5);
-    sparks.emit(tmp, crit ? 26 : 14, crit ? 5 : 3.5, 3, 0.45);
-    tmp.y = GHOUL_H + 0.2;
-    popNumber(tmp, `${dmg}`, crit ? 'crit' : '');
-    if (crit) sfx.crit(); else sfx.hit();
-    if (g.hp <= 0) killGhoul(g);
   }
   function killGhoul(g: Ghoul) {
     g.state = 'dead';
@@ -376,11 +427,31 @@ export function setupCombat(ctx: CombatCtx) {
   function aggroGroup(group: number) {
     for (const o of ghouls) if (o.group === group && o.state === 'idle') o.state = 'chase';
   }
+  let invulnT = 0;
+  let lockT = 0;
+  let armorUntil = 0, armorAbsorb = 0;
+  let vigilReadyAt = 0;
   function hurtHero(raw: number) {
-    if (dead) return;
-    // physical damage: defence then physical resistance
+    if (dead || invulnT > 0) return;
+    // physical damage: defence (incl. Ash Armour) then physical resistance
     const d = player.derived();
-    const dmg = Math.max(1, Math.round(raw * d.dmgTaken * (1 - d.res.phys / 100)));
+    let dmg = Math.max(1, Math.round(raw * d.dmgTaken * (1 - d.res.phys / 100)));
+    // Ash Armour: a share of the hit is paid with mana instead
+    if (performance.now() < armorUntil && player.mp > 0) {
+      const soak = Math.min(player.mp, Math.round(dmg * armorAbsorb));
+      player.mp -= soak;
+      dmg -= soak;
+    }
+    // Last Vigil (passive): survive a killing blow
+    const vigil = player.skillLevel('last_vigil');
+    if (vigil > 0 && player.hp - dmg <= 0 && performance.now() >= vigilReadyAt) {
+      const def = SKILLS.find((x) => x.id === 'last_vigil')!;
+      vigilReadyAt = performance.now() + def.cd[vigil - 1] * 1000;
+      player.hp = Math.round(d.maxHp * def.extra![vigil - 1]);
+      lastVigilFx(def.radius![vigil - 1], def.dur![vigil - 1]);
+      drawOrbs();
+      return;
+    }
     player.hp = Math.max(0, player.hp - dmg);
     drawOrbs();
     shake = Math.max(shake, 0.16);
@@ -397,6 +468,23 @@ export function setupCombat(ctx: CombatCtx) {
       fallen.style.display = 'grid';
     }
   }
+  function lastVigilFx(radius: number, stun: number) {
+    for (const g of ghouls) {
+      if (g.state === 'dead') continue;
+      tmp2.subVectors(g.root.position, ctx.hero.position).setY(0);
+      if (tmp2.length() <= radius) { g.knock.copy(tmp2).normalize().multiplyScalar(1.0 / 0.12); stunGhoul(g, stun); g.flash = 0.1; }
+    }
+    waveT = 1.0;
+    wave.visible = true;
+    waveMat.color.setRGB(1.8, 0.9, 0.4);
+    hitstop = 0.12;
+    shake = 0.35;
+    tmp.copy(ctx.hero.position).setY(1.4);
+    sparks.emit(tmp, 60, 7, 4, 0.7);
+    tmp.y = 3.3;
+    popNumber(tmp, '마지막 파수!', 'lvl');
+    sfx.vigil();
+  }
   function respawn(g: Ghoul) {
     if (g.ember) { scene.remove(g.ember); g.ember.material.dispose(); embers.splice(embers.indexOf(g.ember), 1); g.ember = null; }
     g.root.position.copy(g.home);
@@ -406,6 +494,7 @@ export function setupCombat(ctx: CombatCtx) {
     g.deathT = 0;
     g.wanderT = 0;
     g.knock.set(0, 0, 0);
+    g.stun = 0; g.slowT = 0; g.weakT = 0; g.burnT = 0; g.stars.visible = false;
     for (const m of [g.mats.front, g.mats.back]) { m.opacity = 1; m.transparent = false; }
     g.shadow.scale.setScalar(1);
   }
@@ -420,6 +509,7 @@ export function setupCombat(ctx: CombatCtx) {
   function levelUpFx() {
     waveT = 1.0;
     wave.visible = true;
+    waveMat.color.setRGB(1.6, 1.15, 0.4);
     tmp.copy(ctx.hero.position).setY(3.3);
     popNumber(tmp, '레벨 업!', 'lvl');
     sfx.levelUp();
@@ -469,6 +559,21 @@ export function setupCombat(ctx: CombatCtx) {
     let speed = 0;
 
     if (g.stagger > 0) g.stagger -= dt;
+    // status effects
+    if (g.slowT > 0) g.slowT -= dt;
+    if (g.weakT > 0) g.weakT -= dt;
+    if (g.burnT > 0) {
+      g.burnT -= dt;
+      g.burnTick -= dt;
+      if (g.burnTick <= 0) { g.burnTick += STATUS_TICK; damageGhoul(g, g.burnDmg, { dot: true }); if ((g.state as string) === 'dead') return; }
+      if (Math.random() < dt * 12) { tmp2.copy(g.root.position).setY(rnd(0.5, GHOUL_H)); sparks.emit(tmp2, 1, 0.6, 1.5, 0.5); }
+    }
+    g.stars.visible = g.stun > 0;
+    if (g.stun > 0) {
+      g.stun -= dt;
+      g.stars.material.rotation = 0;
+      g.stars.position.x = Math.sin(g.breathT * 6) * 0.08;
+    }
     if (g.knock.lengthSq() > 0) {
       g.root.position.addScaledVector(g.knock, dt);
       g.knock.multiplyScalar(Math.max(0, 1 - dt / 0.12));
@@ -488,11 +593,12 @@ export function setupCombat(ctx: CombatCtx) {
         break;
       case 'chase':
         if (dead || dist > GHOUL_LEASH) { g.state = 'idle'; g.wanderT = 0; break; }
-        if (g.stagger > 0) break;
-        if (dist > GHOUL_RANGE - 0.2) { move = toHero.clone().normalize(); speed = GHOUL_SPEED; }
+        if (g.stagger > 0 || g.stun > 0) break;
+        if (dist > GHOUL_RANGE - 0.2) { move = toHero.clone().normalize(); speed = GHOUL_SPEED * (g.slowT > 0 ? 1 - g.slowMul : 1); }
         else { g.state = 'windup'; g.timer = GHOUL_WINDUP; setGhoulView(g, toHero); }
         break;
       case 'windup': {
+        if (g.stun > 0) { g.state = 'chase'; g.tele.visible = false; break; }
         g.timer -= dt;
         const dir = toHero.clone().normalize();
         g.tele.visible = true;
@@ -503,7 +609,7 @@ export function setupCombat(ctx: CombatCtx) {
           g.tele.visible = false;
           g.lunge = 0.15;
           // the swing goes where the hero stood when it was decided; dodge by stepping out of the fan's reach
-          if (!dead && dist <= GHOUL_RANGE + 0.45) hurtHero(irnd(GHOUL_DMG[0], GHOUL_DMG[1]));
+          if (!dead && dist <= GHOUL_RANGE + 0.45) hurtHero(irnd(GHOUL_DMG[0], GHOUL_DMG[1]) * (g.weakT > 0 ? 1 - g.weakMul : 1));
           g.state = 'recover';
           g.timer = GHOUL_RECOVER;
         }
@@ -565,7 +671,9 @@ export function setupCombat(ctx: CombatCtx) {
     const flashing = g.flash > 0;
     g.flash = Math.max(0, g.flash - dt);
     mat.emissiveIntensity = flashing ? 2.4 : 0.25;
-    if (flashing || g.state !== 'windup') mat.emissive.setRGB(1, 1, 1);
+    if (!flashing && g.burnT > 0) { mat.emissiveIntensity = 0.45 + 0.25 * Math.sin(g.breathT * 23); mat.emissive.setRGB(1, 0.55, 0.2); }   // burning flicker
+    else if (!flashing && g.slowT > 0 && g.state !== 'windup') mat.emissive.setRGB(0.55, 0.5, 0.75);                                  // dread: cold and dim
+    else if (flashing || g.state !== 'windup') mat.emissive.setRGB(1, 1, 1);
     else mat.emissive.setRGB(1, 0.75 - 0.35 * wind, 0.6 - 0.4 * wind);   // smoulders hotter while winding up
     if (g.state !== 'windup') g.tele.visible = false;
     g.shadow.scale.setScalar(1 - 0.03 * breath);
@@ -604,7 +712,7 @@ export function setupCombat(ctx: CombatCtx) {
         ctx.stopHero();
         if (d > 0.001) ctx.faceHero(to.clone().normalize());
         swingCd -= dt;
-        if (swingT < 0 && swingCd <= 0 && d <= HERO_RANGE + 0.1) {
+        if (swingT < 0 && swingCd <= 0 && lockT <= 0 && d <= HERO_RANGE + 0.1) {
           swingT = 0;
           swingCd = player.derived().period;
           swingResolved = false;
@@ -674,6 +782,8 @@ export function setupCombat(ctx: CombatCtx) {
       g.barFill.style.width = `${(g.hp / GHOUL_HP) * 100}%`;
     }
 
+    lockT = Math.max(0, lockT - dt);
+    invulnT = Math.max(0, invulnT - dt);
     // regeneration
     if (!dead) {
       const d = player.derived();
@@ -739,12 +849,42 @@ export function setupCombat(ctx: CombatCtx) {
       return true;
     },
     levelUpFx,
+    /** Movement and swings pause while a skill's cast animation plays. */
+    isLocked: () => lockT > 0,
+    /** Interface for skills.ts. */
+    world: {
+      alive: () => ghouls.filter((g) => g.state !== 'dead'),
+      posOf: (g: Ghoul) => g.root.position,
+      damage: (g: Ghoul, raw: number, o?: HitOpts) => damageGhoul(g, raw, o),
+      stun: (g: Ghoul, t: number) => stunGhoul(g, t),
+      slow: (g: Ghoul, t: number, mul: number) => { g.slowT = Math.max(g.slowT, t); g.slowMul = mul; },
+      weaken: (g: Ghoul, t: number, mul: number) => { g.weakT = Math.max(g.weakT, t); g.weakMul = mul; },
+      burn: (g: Ghoul, t: number, perTick: number) => { if (g.burnT <= 0) g.burnTick = STATUS_TICK; g.burnT = t; g.burnDmg = perTick; },
+      status: (g: Ghoul) => ({ stun: g.stun, slowT: g.slowT, slowMul: g.slowMul, weakT: g.weakT, weakMul: g.weakMul, burnT: g.burnT, burnDmg: g.burnDmg }),
+      weaponRoll, spellRoll, critRoll,
+      sparks: (at: THREE.Vector3, n: number, speed: number, up: number, life: number) => sparks.emit(at, n, speed, up, life),
+      ash: (at: THREE.Vector3, n: number, speed: number, up: number, life: number) => ashBurst.emit(at, n, speed, up, life),
+      shake: (v: number) => { shake = Math.max(shake, v); },
+      hitstop: (v: number) => { hitstop = Math.max(hitstop, v); },
+      lock: (t: number) => { lockT = Math.max(lockT, t); },
+      invuln: (t: number) => { invulnT = Math.max(invulnT, t); },
+      armor: (until: number, absorb: number) => { armorUntil = until; armorAbsorb = absorb; },
+      armorLeft: () => Math.max(0, (armorUntil - performance.now()) / 1000),
+      vigilLeft: () => Math.max(0, (vigilReadyAt - performance.now()) / 1000),
+      isDead: () => dead,
+      faceToward: (dir: THREE.Vector3) => ctx.faceHero(dir),
+      stopHero: () => ctx.stopHero(),
+      clearTarget: () => { target = null; swingT = -1; ctx.heroPivot.position.set(0, 0, 0); },
+      drawOrbs,
+    },
     debug: {
       ghouls,
       get hp() { return player.hp; },
       get lastHit() { return lastHit; },
       /** Test hook: bring every dead ghoul back now, wherever the hero is. */
       respawnAll() { for (const g of ghouls) if (g.state === 'dead') respawn(g); },
+      /** Test hook: a monster hit of this raw size on the hero. */
+      hurt: (raw: number) => hurtHero(raw),
       get target() { return target ? ghouls.indexOf(target) : -1; },
       screenOf(i: number) { const g = ghouls[i]; tmp2.copy(g.root.position).setY(GHOUL_H * 0.5); return toScreen(tmp2); },
     },

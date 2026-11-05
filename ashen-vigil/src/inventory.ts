@@ -12,7 +12,7 @@ import { toast } from './ui';
 const CELL = 40;
 const SLOT_BOX: Record<Slot, { label: string; x: number; y: number; w: number; h: number }> = {
   head: { label: '투구', x: 160, y: 0, w: 2, h: 2 },
-  neck: { label: '목걸이', x: 252, y: 20, w: 1, h: 1 },
+  neck: { label: '목걸이', x: 300, y: 0, w: 1, h: 1 },     // above the shield, clear of it
   'hand-r': { label: '무기', x: 40, y: 40, w: 2, h: 4 },
   body: { label: '갑옷', x: 160, y: 90, w: 2, h: 3 },
   'hand-l': { label: '방패', x: 280, y: 40, w: 2, h: 4 },
@@ -25,7 +25,7 @@ const css = `
   padding: 14px; background: rgba(14, 12, 11, 0.95); border: 1px solid #4a4038;
   box-shadow: 0 0 0 1px #000, 0 8px 32px #000; font: 13px/1.4 system-ui, sans-serif; color: #b8aa98; user-select: none; }
 #inv { right: calc(16px + env(safe-area-inset-right, 0px)); width: ${10 * CELL + 2}px; }
-#char { left: calc(16px + env(safe-area-inset-left, 0px)); width: 280px; }
+#char { left: calc(16px + env(safe-area-inset-left, 0px)); top: calc(76px + env(safe-area-inset-top, 0px)); width: 280px; }   /* below the HUD text */
 #inv[hidden], #char[hidden] { display: none !important; }
 @media (max-width: 460px) { #inv { transform: scale(0.82); transform-origin: top right; } #char { transform: scale(0.82); transform-origin: top left; } }
 #inv h2, #char h2 { margin: 0 0 10px; font: 600 14px/1 Georgia, serif; letter-spacing: 0.12em; color: #e8873a; }
