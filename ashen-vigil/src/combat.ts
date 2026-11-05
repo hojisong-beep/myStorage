@@ -161,7 +161,7 @@ export function setupCombat(ctx: CombatCtx) {
     text-shadow: 0 1px 2px #000, 0 0 6px #000; white-space: nowrap; z-index: 4; will-change: transform, opacity; }
   .dmg.crit { color: #ff9a3a; font-size: 28px; }
   .dmg.hurt { color: #ff5a4a; }
-  .gbar { position: fixed; left: 0; top: 0; width: 64px; height: 6px; background: #1a0d0b; border: 1px solid #000;
+  .gbar { position: fixed; left: 0; top: 0; width: 64px; height: 6px; background: #1a0d0b; border: 1px solid #000; overflow: hidden;
     pointer-events: none; z-index: 2; display: none; }
   .gbar > div { height: 100%; background: linear-gradient(#e0583a, #8a1e10); }
   #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 5; opacity: 0;
@@ -779,7 +779,7 @@ export function setupCombat(ctx: CombatCtx) {
       const [x, y] = toScreen(tmp2);
       g.bar.style.display = 'block';
       g.bar.style.transform = `translate(${x - 32}px, ${y}px)`;
-      g.barFill.style.width = `${(g.hp / GHOUL_HP) * 100}%`;
+      g.barFill.style.width = `${Math.max(0, Math.min(100, (g.hp / GHOUL_HP) * 100))}%`;
     }
 
     lockT = Math.max(0, lockT - dt);

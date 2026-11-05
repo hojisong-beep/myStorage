@@ -862,6 +862,6 @@ if (location.search.includes('debug')) {
   // test hooks only (not reachable from the UI)
   Object.assign(window as unknown as Record<string, unknown>, {
     __combat: combat.debug, __renderer: renderer,
-    __av: { player, skills, skillsLog: skills.log, tree, loot: loot.debug, lootApi: loot, combat, lootLog: loot.log, inventory, saveNow, makeItem, makeUnique, rollDrop, loadedFrom },
+    __av: { player, skills, skillsLog: skills.log, tree, aim, loot: loot.debug, lootApi: loot, combat, lootLog: loot.log, inventory, saveNow, makeItem, makeUnique, rollDrop, loadedFrom },
   });
 }
