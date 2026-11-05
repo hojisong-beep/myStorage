@@ -29,7 +29,7 @@ interface Ground {
 
 const PICK_RANGE = 1.2;
 const GOLD_RANGE = 1.0;
-const CELL = 0.42;                      // world units per inventory cell for the ground icon
+const CELL = 0.55;                      // world units per inventory cell for the ground icon
 
 export function setupLoot(ctx: LootCtx) {
   const { scene, camera } = ctx;
@@ -93,6 +93,7 @@ export function setupLoot(ctx: LootCtx) {
   window.addEventListener('pointermove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 
   const v = new THREE.Vector3();
+  const placed: { g: Ground; x: number; y: number; w: number; h: number }[] = [];
   const toScreen = (p: THREE.Vector3) => { v.copy(p).project(camera); return [(v.x * 0.5 + 0.5) * window.innerWidth, (-v.y * 0.5 + 0.5) * window.innerHeight]; };
 
   function spawnOne(drop: Drop, at: THREE.Vector3, spread = true) {
@@ -106,7 +107,8 @@ export function setupLoot(ctx: LootCtx) {
       name = drop.item.name + (drop.item.qty && drop.item.qty > 1 ? ` x${drop.item.qty}` : '');
       color = RARITY_COLOR[drop.item.rarity];
     }
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false, transparent: true }));
+    // brighter than 1: sprites go through the same tone mapping as the dim, torch-lit floor
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, color: new THREE.Color(1.7, 1.7, 1.7), depthWrite: false, transparent: true }));
     sprite.scale.set(w, h, 1);
     scene.add(sprite);
     const fancy = drop.kind === 'item' && (drop.item.rarity === 'rare' || drop.item.rarity === 'unique');
@@ -210,9 +212,23 @@ export function setupLoot(ctx: LootCtx) {
       g.label.style.display = show ? 'block' : 'none';
       if (show) {
         const [x, y] = toScreen(v.copy(g.sprite.position).setY(g.sprite.position.y + g.h / 2 + 0.15));
-        g.label.style.transform = `translate(${Math.round(x - g.label.offsetWidth / 2)}px, ${Math.round(y - 22)}px)`;
+        placed.push({ g, x: Math.round(x - g.label.offsetWidth / 2), y: Math.round(y - 22), w: g.label.offsetWidth, h: g.label.offsetHeight });
       }
     }
+    // labels must not cover each other: lower ones first, push overlapping ones up
+    placed.sort((a, b) => b.y - a.y);
+    for (let i = 0; i < placed.length; i++) {
+      const r = placed[i];
+      for (let moved = true, n = 0; moved && n < 20; n++) {
+        moved = false;
+        for (let j = 0; j < i; j++) {
+          const o = placed[j];
+          if (r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h + 2 && o.y < r.y + r.h + 2) { r.y = o.y - r.h - 2; moved = true; }
+        }
+      }
+      r.g.label.style.transform = `translate(${r.x}px, ${r.y}px)`;
+    }
+    placed.length = 0;
     for (let i = lightIdx; i < lights.length; i++) lights[i].intensity = 0;
 
     if (target && items.includes(target)) {
